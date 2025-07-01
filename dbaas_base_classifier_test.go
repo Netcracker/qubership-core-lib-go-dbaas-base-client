@@ -50,7 +50,6 @@ func TestMain(m *testing.M) {
 
 func setUp() {
 	serviceloader.Register(2, &security.DummyToken{})
-	serviceloader.Register(3, &security.TenantContextObject{})
 
 	os.Setenv(MicroserviceNameProperty, microserviceName)
 	os.Setenv(NamespaceProperty, namespace)
