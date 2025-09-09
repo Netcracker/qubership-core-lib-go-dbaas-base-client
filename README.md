@@ -26,7 +26,7 @@ To get `dbaasbase` use
  go get github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3@<latest released version>
 ```
 
-List of all released versions may be found [here](https://github.com/netcracker/go/dbaas/base-client/-/tags)
+List of all released versions may be found [here](https://github.com/netcracker/qubership-core-lib-go-dbaas-base-client/tags)
 
 ## Usage
 
