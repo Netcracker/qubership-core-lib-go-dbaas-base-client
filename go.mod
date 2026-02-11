@@ -3,7 +3,7 @@ module github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3
 go 1.25.7
 
 require (
-	github.com/netcracker/qubership-core-lib-go/v3 v3.4.0
+	github.com/netcracker/qubership-core-lib-go/v3 v3.5.0
 	github.com/stretchr/testify v1.11.1
 )
 

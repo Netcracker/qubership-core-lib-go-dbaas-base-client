@@ -49,6 +49,8 @@ github.com/netcracker/qubership-core-lib-go/v3 v3.3.1 h1:rvBOLY8BtCO+0YxBFurl+sd
 github.com/netcracker/qubership-core-lib-go/v3 v3.3.1/go.mod h1:komq6cK5bGZx5fwnwIo2YZGOXTEITVJ3xCt4VLL4CcA=
 github.com/netcracker/qubership-core-lib-go/v3 v3.4.0 h1:PtVq5JWR8Cy+ymBJfbI5LjH4oedBUttebJ5+r3ap6wA=
 github.com/netcracker/qubership-core-lib-go/v3 v3.4.0/go.mod h1:tXcabbpYNAvm4sSU2i95mRsQo76mvUqJgbX0lMgtF1U=
+github.com/netcracker/qubership-core-lib-go/v3 v3.5.0 h1:uKuETXXHZ54Zvak5L6zy8eFVH6bBYL9KAVq4+0GpkyM=
+github.com/netcracker/qubership-core-lib-go/v3 v3.5.0/go.mod h1:tXcabbpYNAvm4sSU2i95mRsQo76mvUqJgbX0lMgtF1U=
 github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 h1:onHthvaw9LFnH4t2DcNVpwGmV9E1BkGknEliJkfwQj0=
 github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58/go.mod h1:DXv8WO4yhMYhSNPKjeNKa5WY9YCIEBRbNzFFPJbWO6Y=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
