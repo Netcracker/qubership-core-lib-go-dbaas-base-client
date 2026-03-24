@@ -62,7 +62,7 @@ func (d *DbaaSCache) Cache(key Key, calc func() (interface{}, error)) (interface
 			d.LogicalDbCache[key] = val
 			return val, nil
 		} else {
-			logger.Errorf("Error during call db request to dbaas: %s", err.Error())
+			logger.Errorf("Error during call db request to dbaas: %v", err.Error())
 			return nil, err
 		}
 	}
