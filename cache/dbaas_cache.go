@@ -2,8 +2,9 @@ package cache
 
 import (
 	"encoding/json"
-	"github.com/netcracker/qubership-core-lib-go/v3/logging"
 	"sync"
+
+	"github.com/netcracker/qubership-core-lib-go/v3/logging"
 )
 
 type Key struct {
@@ -57,12 +58,11 @@ func (d *DbaaSCache) Cache(key Key, calc func() (interface{}, error)) (interface
 			return val, nil
 		}
 		logger.Infof("Create new database with type %v and classifier %+v", key.DbType, key.Classifier)
-		errPrefix := "Error during call db request to dbaas: "
 		if val, err := calc(); err == nil {
 			d.LogicalDbCache[key] = val
 			return val, nil
 		} else {
-			logger.Error(errPrefix + err.Error())
+			logger.Errorf("Error during call db request to dbaas: %s", err.Error())
 			return nil, err
 		}
 	}
