@@ -15,11 +15,10 @@ import (
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
 	"github.com/netcracker/qubership-core-lib-go/v3/configloader"
 	"github.com/netcracker/qubership-core-lib-go/v3/const"
-	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/ctxhelper"
 	"github.com/netcracker/qubership-core-lib-go/v3/logging"
 	"github.com/netcracker/qubership-core-lib-go/v3/security"
+	restclient "github.com/netcracker/qubership-core-lib-go/v3/security/rest"
 	"github.com/netcracker/qubership-core-lib-go/v3/serviceloader"
-	"github.com/netcracker/qubership-core-lib-go/v3/utils"
 )
 
 var logger logging.Logger
@@ -44,7 +43,7 @@ type dbaasClientImpl struct {
 	options       model.ClientOptions
 	dbaasAgentUrl string
 	namespace     string
-	client        *http.Client
+	client        restclient.Client
 }
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
@@ -54,7 +53,7 @@ func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	dbsClntImpl := &dbaasClientImpl{
 		dbaasAgentUrl: dbsAgentUrl,
 		namespace:     namespace,
-		client:        utils.GetClient(),
+		client:        restclient.NewDbaasRestClient(),
 	}
 
 	if options != nil {
@@ -208,22 +207,10 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 	delay := configloader.GetOrDefault("dbaas.baseclient.retry.delay-ms", 5000).(int)
 	var resp *http.Response
 	for i := 0; i <= maxNumberOfAttempts; i++ {
-		req, err := http.NewRequest(httpMethod, dbaasUrl, bytes.NewBuffer(requestPayload))
-		if err != nil {
-			logger.ErrorC(ctx, "Got error during request creation: %v ", err.Error())
-			return nil, fmt.Errorf("got error during request creation: %w ", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		err = ctxhelper.AddSerializableContextData(ctx, req.Header.Set)
-		if err != nil {
-			logger.ErrorC(ctx, "Error during context serializing: %v", err.Error())
-			return nil, fmt.Errorf("error during context serializing: %w ", err)
-		}
-
-		resp, err = d.client.Do(req)
+		var err error
+		resp, err = d.client.DoRequest(ctx, httpMethod, dbaasUrl, map[string][]string{
+			"Content-Type": []string{"application/json"},
+		}, bytes.NewReader(requestPayload))
 		if err != nil {
 			logger.WarnC(ctx, "Error during sending request to dbaas: %v", err.Error())
 			if i == maxNumberOfAttempts {
@@ -316,15 +303,9 @@ func isValidClassifier(ctx context.Context, classifier map[string]interface{}) e
 }
 
 func (d *dbaasClientImpl) checkDbaasApiVersion(ctx context.Context) error {
-	var resp *http.Response
 	dbaasUrl := fmt.Sprintf(apiVersion, d.dbaasAgentUrl)
 	logger.DebugC(ctx, "Send request to: %s", dbaasUrl)
-	req, err := http.NewRequest(http.MethodGet, dbaasUrl, nil)
-	if err != nil {
-		logger.ErrorC(ctx, "Got error during request creation: %+v ", err.Error())
-		return err
-	}
-	resp, err = d.client.Do(req)
+	resp, err := d.client.DoRequest(ctx, http.MethodGet, dbaasUrl, map[string][]string{}, nil)
 	if err != nil {
 		return err
 	}
