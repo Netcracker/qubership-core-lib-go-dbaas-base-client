@@ -47,11 +47,18 @@ type dbaasClientImpl struct {
 }
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
-	defaultDbaasAgentUrl := constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443")
-	dbsAgentUrl := configloader.GetOrDefaultString("dbaas.agent", defaultDbaasAgentUrl)
+	dbaasUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
+	if configloader.GetKoanf().Bool("security.m2m.kubernetes.enabled") {
+		if configloader.GetKoanf().Exists("api.dbaas.address") {
+			dbaasUrl = configloader.GetOrDefaultString("api.dbaas.address", dbaasUrl)
+		} else {
+			logger.Warn("DBaaS address is not available, falling back to dbaas-agent. Specify 'api.dbaas.address' property to DBaaS url")
+		}
+	}
+
 	namespace := configloader.GetKoanf().MustString("microservice.namespace")
 	dbsClntImpl := &dbaasClientImpl{
-		dbaasAgentUrl: dbsAgentUrl,
+		dbaasAgentUrl: dbaasUrl,
 		namespace:     namespace,
 		client:        restclient.NewDbaasRestClient(),
 	}
