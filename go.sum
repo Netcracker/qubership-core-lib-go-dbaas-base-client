@@ -37,6 +37,8 @@ github.com/netcracker/qubership-core-lib-go/v3 v3.7.4-0.20260427080307-d15c23ea6
 github.com/netcracker/qubership-core-lib-go/v3 v3.7.4-0.20260427080307-d15c23ea6c3c/go.mod h1:B0uxkSoHq8Cmutz9s0Rqc+xNY8MHcqHYHj08bo1GgKU=
 github.com/netcracker/qubership-core-lib-go/v3 v3.8.1-0.20260428233515-5795851eb5ed h1:s1jQ9Agmpi2wtfTXf4JMQKrHDd3sIeWOvI5ZLZWSzC4=
 github.com/netcracker/qubership-core-lib-go/v3 v3.8.1-0.20260428233515-5795851eb5ed/go.mod h1:QyMRsp91YS6ub+0NWXWU5NzC0DK+YASMceUR4Qhdxts=
+github.com/netcracker/qubership-core-lib-go/v3 v3.8.2-0.20260514133633-d05f0c13170b h1:YTQuKWzE8DF+hgVjOsa9KNB5yKZa1MYlB9qDETeIUOU=
+github.com/netcracker/qubership-core-lib-go/v3 v3.8.2-0.20260514133633-d05f0c13170b/go.mod h1:QyMRsp91YS6ub+0NWXWU5NzC0DK+YASMceUR4Qhdxts=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
