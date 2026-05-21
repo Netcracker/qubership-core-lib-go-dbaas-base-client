@@ -16,9 +16,7 @@ import (
 	"github.com/netcracker/qubership-core-lib-go/v3/configloader"
 	constants "github.com/netcracker/qubership-core-lib-go/v3/const"
 	"github.com/netcracker/qubership-core-lib-go/v3/logging"
-	"github.com/netcracker/qubership-core-lib-go/v3/security"
 	restclient "github.com/netcracker/qubership-core-lib-go/v3/security/rest"
-	"github.com/netcracker/qubership-core-lib-go/v3/serviceloader"
 )
 
 var logger logging.Logger
@@ -177,19 +175,13 @@ func (d *dbaasClientImpl) enrichClassifier(classifier map[string]interface{}) ma
 }
 
 func (d *dbaasClientImpl) sendRequestToDbaaSWithRetry(ctx context.Context, dbaasUrl string, requestBody interface{}, httpMethod string, retryPolicy *intermodel.RetryPolicy) ([]byte, error) {
-	tokenProvider := serviceloader.MustLoad[security.TokenProvider]()
-	token, err := tokenProvider.GetToken(ctx)
-	if err != nil {
-		logger.ErrorC(ctx, "Some problems during getting m2m token: %v", err.Error())
-		return nil, fmt.Errorf("some problems during getting m2m token: %w", err)
-	}
 	requestPayload, err := json.Marshal(requestBody)
 	if err != nil {
 		logger.ErrorC(ctx, "Got error during marshaling connection request: %v", err.Error())
 		return nil, fmt.Errorf("got error during marshaling connection request: %w", err)
 	}
 
-	resp, err := d.retryRequestToDbaaS(ctx, dbaasUrl, httpMethod, requestPayload, token, retryPolicy)
+	resp, err := d.retryRequestToDbaaS(ctx, dbaasUrl, httpMethod, requestPayload, retryPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +200,7 @@ func (d *dbaasClientImpl) sendRequestToDbaaSWithRetry(ctx context.Context, dbaas
 	return contents, nil
 }
 
-func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl string, httpMethod string, requestPayload []byte, token string, retryPolicy *intermodel.RetryPolicy) (*http.Response, error) {
+func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl string, httpMethod string, requestPayload []byte, retryPolicy *intermodel.RetryPolicy) (*http.Response, error) {
 	hasBeenInterrupted := false
 	maxNumberOfAttempts := configloader.GetOrDefault("dbaas.baseclient.retry.max-attempts", 12).(int)
 	delay := configloader.GetOrDefault("dbaas.baseclient.retry.delay-ms", 5000).(int)
