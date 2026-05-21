@@ -33,10 +33,6 @@ github.com/mitchellh/copystructure v1.2.0 h1:vpKXTN4ewci03Vljg/q9QvCGUDttBOGBIa1
 github.com/mitchellh/copystructure v1.2.0/go.mod h1:qLl+cE2AmVv+CoeAwDPye/v+N2HKCj9FbZEVFJRxO9s=
 github.com/mitchellh/reflectwalk v1.0.2 h1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=
 github.com/mitchellh/reflectwalk v1.0.2/go.mod h1:mSTlrgnPZtwu0c4WaC2kGObEpuNDbx0jmZXqmk4esnw=
-github.com/netcracker/qubership-core-lib-go/v3 v3.7.4-0.20260427080307-d15c23ea6c3c h1:sDXGcQDQ8Ljs9xV/qNnEOspQRjLeBQBbc8+4Pd70oF0=
-github.com/netcracker/qubership-core-lib-go/v3 v3.7.4-0.20260427080307-d15c23ea6c3c/go.mod h1:B0uxkSoHq8Cmutz9s0Rqc+xNY8MHcqHYHj08bo1GgKU=
-github.com/netcracker/qubership-core-lib-go/v3 v3.8.1-0.20260428233515-5795851eb5ed h1:s1jQ9Agmpi2wtfTXf4JMQKrHDd3sIeWOvI5ZLZWSzC4=
-github.com/netcracker/qubership-core-lib-go/v3 v3.8.1-0.20260428233515-5795851eb5ed/go.mod h1:QyMRsp91YS6ub+0NWXWU5NzC0DK+YASMceUR4Qhdxts=
 github.com/netcracker/qubership-core-lib-go/v3 v3.8.2-0.20260514133633-d05f0c13170b h1:YTQuKWzE8DF+hgVjOsa9KNB5yKZa1MYlB9qDETeIUOU=
 github.com/netcracker/qubership-core-lib-go/v3 v3.8.2-0.20260514133633-d05f0c13170b/go.mod h1:QyMRsp91YS6ub+0NWXWU5NzC0DK+YASMceUR4Qhdxts=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
