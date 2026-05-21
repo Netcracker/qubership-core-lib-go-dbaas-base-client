@@ -16,6 +16,7 @@ import (
 	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/baseproviders/tenant"
 	"github.com/netcracker/qubership-core-lib-go/v3/context-propagation/ctxmanager"
 	"github.com/netcracker/qubership-core-lib-go/v3/security"
+	restclient "github.com/netcracker/qubership-core-lib-go/v3/security/rest"
 	"github.com/netcracker/qubership-core-lib-go/v3/serviceloader"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -52,6 +53,8 @@ func (suite *DbaasClientTestSuite) SetupSuite() {
 	suite.params = configloader.YamlPropertySourceParams{ConfigFilePath: "testdata/application.yaml"}
 	configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
 	suite.classifier = map[string]interface{}{"scope": "service", "microserviceName": "test_service"}
+
+	restclient.DefaultDbaasAgentUrl = GetMockServerUrl()
 }
 
 func (suite *DbaasClientTestSuite) TearDownSuite() {
