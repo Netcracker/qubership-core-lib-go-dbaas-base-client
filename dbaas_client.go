@@ -14,7 +14,7 @@ import (
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
 	"github.com/netcracker/qubership-core-lib-go/v3/configloader"
-	"github.com/netcracker/qubership-core-lib-go/v3/const"
+	constants "github.com/netcracker/qubership-core-lib-go/v3/const"
 	"github.com/netcracker/qubership-core-lib-go/v3/logging"
 	"github.com/netcracker/qubership-core-lib-go/v3/security"
 	restclient "github.com/netcracker/qubership-core-lib-go/v3/security/rest"
@@ -216,7 +216,7 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 	for i := 0; i <= maxNumberOfAttempts; i++ {
 		var err error
 		resp, err = d.client.DoRequest(ctx, httpMethod, dbaasUrl, map[string][]string{
-			"Content-Type": []string{"application/json"},
+			"Content-Type": {"application/json"},
 		}, bytes.NewReader(requestPayload))
 		if err != nil {
 			logger.WarnC(ctx, "Error during sending request to dbaas: %v", err.Error())
