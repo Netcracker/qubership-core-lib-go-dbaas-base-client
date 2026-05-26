@@ -41,7 +41,7 @@ type dbaasClientImpl struct {
 	options       model.ClientOptions
 	dbaasAgentUrl string
 	namespace     string
-	client        restclient.Client
+	client        *restclient.M2MRestClient
 }
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
