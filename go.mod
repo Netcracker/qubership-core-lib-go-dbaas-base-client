@@ -24,6 +24,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/viney-shih/go-lock v1.1.2 // indirect
 	golang.org/x/sync v0.15.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
