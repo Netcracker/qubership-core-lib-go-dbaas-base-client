@@ -89,14 +89,10 @@ func (idx *secretIndex) resolve(clf map[string]interface{}, dbType, role string)
 
 	idx.mu.RLock()
 	dirPath, found := idx.index[key]
+	sinceRescan := time.Since(idx.lastRescan)
 	idx.mu.RUnlock()
 
 	if !found {
-		// throttled re-scan for secrets added without a redeploy
-		idx.mu.RLock()
-		sinceRescan := time.Since(idx.lastRescan)
-		idx.mu.RUnlock()
-
 		if sinceRescan >= rescanThrottleDuration {
 			idx.buildIndex()
 			idx.mu.RLock()
@@ -127,16 +123,9 @@ func (idx *secretIndex) resolve(clf map[string]interface{}, dbType, role string)
 
 // matchingKey builds the canonical lookup key: canonical(clf)|type|role
 func matchingKey(clf map[string]interface{}, dbType, role string) string {
-	return canonicalClassifier(clf) + "|" + strings.ToLower(dbType) + "|" + normalizeRole(role)
+	return canonicalClassifier(clf) + "|" + strings.ToLower(dbType) + "|" + strings.TrimSpace(role)
 }
 
-func normalizeRole(role string) string {
-	return strings.TrimSpace(role)
-}
-
-// canonicalClassifier produces a stable, whitespace-free JSON string from a classifier map.
-// Rules (§5): omit zero-value entries; scope lowercased; customKeys nested with recursively
-// sorted keys; values keep JSON types.
 func canonicalClassifier(clf map[string]interface{}) string {
 	cleaned := canonicalMap(clf)
 	b, err := marshalSorted(cleaned)
@@ -175,7 +164,6 @@ func canonicalMap(m map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// marshalSorted produces deterministic JSON by sorting map keys at every level.
 func marshalSorted(v interface{}) ([]byte, error) {
 	switch val := v.(type) {
 	case map[string]interface{}:
@@ -210,7 +198,6 @@ func marshalSorted(v interface{}) ([]byte, error) {
 	}
 }
 
-// mountedSecretProvider implements model.LogicalDbProvider backed by mounted Secrets.
 type mountedSecretProvider struct {
 	idx *secretIndex
 }

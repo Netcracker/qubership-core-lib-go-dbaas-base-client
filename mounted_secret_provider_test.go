@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- helpers ---
-
 func writeSecret(t *testing.T, baseDir, secretName string, meta secretMetadata, props map[string]interface{}) string {
 	t.Helper()
 	dir := filepath.Join(baseDir, secretName)
@@ -47,8 +45,6 @@ func tenantClassifier(msName, namespace, tenantID string) map[string]interface{}
 		"tenantId":         tenantID,
 	}
 }
-
-// --- index / canonical tests ---
 
 func TestBuildIndex_ServiceScope(t *testing.T) {
 	base := t.TempDir()
@@ -134,8 +130,6 @@ func TestResolve_CorruptConnectionProperties(t *testing.T) {
 	assert.Nil(t, resolved)
 }
 
-// --- rotation: re-reads file on each call ---
-
 func TestGetConnection_ReadsFileFresh(t *testing.T) {
 	base := t.TempDir()
 	clf := serviceClassifier("svc", "ns")
@@ -157,8 +151,6 @@ func TestGetConnection_ReadsFileFresh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "new-pass", conn2["password"], "provider must re-read the file, not return cached props")
 }
-
-// --- GetOrCreateDb ---
 
 func TestGetOrCreateDb_ReturnsLogicalDb(t *testing.T) {
 	base := t.TempDir()
@@ -191,8 +183,6 @@ func TestGetConnection_Miss_ReturnsNil(t *testing.T) {
 	assert.Nil(t, props)
 }
 
-// --- role matching ---
-
 func TestResolve_WithRole(t *testing.T) {
 	base := t.TempDir()
 	clf := serviceClassifier("svc", "ns")
@@ -210,8 +200,6 @@ func TestResolve_WithRole(t *testing.T) {
 	_, ok = idx.resolve(clf, "postgresql", "admin")
 	assert.False(t, ok)
 }
-
-// --- throttled rescan ---
 
 func TestRescan_NewSecretPickedUp(t *testing.T) {
 	base := t.TempDir()
@@ -237,8 +225,6 @@ func TestRescan_NewSecretPickedUp(t *testing.T) {
 	require.NotNil(t, db, "provider should pick up the new secret after throttled rescan")
 	assert.Equal(t, "pg://new-host", db.ConnectionProperties["url"])
 }
-
-// --- canonical classifier ---
 
 func TestCanonicalClassifier_ScopeNormalized(t *testing.T) {
 	clf1 := map[string]interface{}{"microserviceName": "svc", "namespace": "ns", "scope": "Service"}
@@ -267,13 +253,7 @@ func TestCanonicalClassifier_NestedCustomKeys(t *testing.T) {
 	}
 	key := canonicalClassifier(clf)
 	// "a" must come before "z" in the output
-	aIdx := indexOf(key, `"a"`)
-	zIdx := indexOf(key, `"z"`)
-	assert.True(t, aIdx < zIdx, "customKeys must be sorted: got %s", key)
-}
-
-func indexOf(s, sub string) int {
-	return strings.Index(s, sub)
+	assert.True(t, strings.Index(key, `"a"`) < strings.Index(key, `"z"`), "customKeys must be sorted: got %s", key)
 }
 
 func TestMatchingKey_TypeLowercased(t *testing.T) {
