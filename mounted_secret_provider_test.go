@@ -11,20 +11,33 @@ import (
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
-func writeSecret(t *testing.T, baseDir, secretName string, meta secretMetadata, props map[string]interface{}) string {
-	t.Helper()
-	dir := filepath.Join(baseDir, secretName)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+type MountedSecretProviderTestSuite struct {
+	suite.Suite
+	baseDir string
+}
+
+func (s *MountedSecretProviderTestSuite) SetupTest() {
+	s.baseDir = s.T().TempDir()
+}
+
+func TestMountedSecretProviderSuite(t *testing.T) {
+	suite.Run(t, new(MountedSecretProviderTestSuite))
+}
+
+func (s *MountedSecretProviderTestSuite) writeSecret(secretName string, meta secretMetadata, props map[string]interface{}) string {
+	dir := filepath.Join(s.baseDir, secretName)
+	require.NoError(s.T(), os.MkdirAll(dir, 0o755))
 
 	metaBytes, err := json.Marshal(meta)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, metadataFileName), metaBytes, 0o644))
+	require.NoError(s.T(), err)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, metadataFileName), metaBytes, 0o644))
 
 	propsBytes, err := json.Marshal(props)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), propsBytes, 0o644))
+	require.NoError(s.T(), err)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), propsBytes, 0o644))
 
 	return dir
 }
@@ -46,205 +59,183 @@ func tenantClassifier(msName, namespace, tenantID string) map[string]interface{}
 	}
 }
 
-func TestBuildIndex_ServiceScope(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestBuildIndex_ServiceScope() {
 	clf := serviceClassifier("my-svc", "team-a")
 	props := map[string]interface{}{"url": "postgres://host/db", "username": "u", "password": "p"}
-	writeSecret(t, base, "secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	idx := newSecretIndex(base)
+	idx := newSecretIndex(s.baseDir)
 	resolved, ok := idx.resolve(clf, "postgresql", "")
-	assert.True(t, ok)
-	assert.Equal(t, "postgres://host/db", resolved["url"])
+	assert.True(s.T(), ok)
+	assert.Equal(s.T(), "postgres://host/db", resolved["url"])
 }
 
-func TestBuildIndex_TenantScope(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestBuildIndex_TenantScope() {
 	clf := tenantClassifier("my-svc", "team-a", "acme")
 	props := map[string]interface{}{"url": "mongo://host/db", "username": "u", "password": "p"}
-	writeSecret(t, base, "secret-tenant", secretMetadata{Classifier: clf, Type: "mongodb"}, props)
+	s.writeSecret("secret-tenant", secretMetadata{Classifier: clf, Type: "mongodb"}, props)
 
-	idx := newSecretIndex(base)
+	idx := newSecretIndex(s.baseDir)
 	resolved, ok := idx.resolve(clf, "mongodb", "")
-	assert.True(t, ok)
-	assert.Equal(t, "mongo://host/db", resolved["url"])
+	assert.True(s.T(), ok)
+	assert.Equal(s.T(), "mongo://host/db", resolved["url"])
 }
 
-func TestResolve_Miss_UnknownClassifier(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestResolve_Miss_UnknownClassifier() {
 	clf := serviceClassifier("my-svc", "team-a")
 	props := map[string]interface{}{"url": "postgres://host/db"}
-	writeSecret(t, base, "secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	idx := newSecretIndex(base)
-	otherClf := serviceClassifier("other-svc", "team-a")
-	resolved, ok := idx.resolve(otherClf, "postgresql", "")
-	assert.False(t, ok)
-	assert.Nil(t, resolved)
+	idx := newSecretIndex(s.baseDir)
+	resolved, ok := idx.resolve(serviceClassifier("other-svc", "team-a"), "postgresql", "")
+	assert.False(s.T(), ok)
+	assert.Nil(s.T(), resolved)
 }
 
-func TestResolve_Miss_EmptyDir(t *testing.T) {
-	base := t.TempDir()
-	idx := newSecretIndex(base)
+func (s *MountedSecretProviderTestSuite) TestResolve_Miss_EmptyDir() {
+	idx := newSecretIndex(s.baseDir)
 	resolved, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
-	assert.False(t, ok)
-	assert.Nil(t, resolved)
+	assert.False(s.T(), ok)
+	assert.Nil(s.T(), resolved)
 }
 
-func TestResolve_Miss_BasepathMissing(t *testing.T) {
+func (s *MountedSecretProviderTestSuite) TestResolve_Miss_BasepathMissing() {
 	idx := newSecretIndex("/nonexistent/path")
 	resolved, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
-	assert.False(t, ok)
-	assert.Nil(t, resolved)
+	assert.False(s.T(), ok)
+	assert.Nil(s.T(), resolved)
 }
 
-func TestBuildIndex_CorruptMetadata_Skipped(t *testing.T) {
-	base := t.TempDir()
-	dir := filepath.Join(base, "bad-secret")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, metadataFileName), []byte("not json{{"), 0o644))
+func (s *MountedSecretProviderTestSuite) TestBuildIndex_CorruptMetadata_Skipped() {
+	dir := filepath.Join(s.baseDir, "bad-secret")
+	require.NoError(s.T(), os.MkdirAll(dir, 0o755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, metadataFileName), []byte("not json{{"), 0o644))
 
-	// good secret alongside the bad one
 	clf := serviceClassifier("svc", "ns")
 	props := map[string]interface{}{"url": "pg://host"}
-	writeSecret(t, base, "good-secret", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	s.writeSecret("good-secret", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	idx := newSecretIndex(base)
+	idx := newSecretIndex(s.baseDir)
 	_, ok := idx.resolve(clf, "postgresql", "")
-	assert.True(t, ok, "good secret should still resolve despite corrupt neighbour")
+	assert.True(s.T(), ok, "good secret should still resolve despite corrupt neighbour")
 }
 
-func TestResolve_CorruptConnectionProperties(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestResolve_CorruptConnectionProperties() {
 	clf := serviceClassifier("svc", "ns")
-	dir := filepath.Join(base, "corrupt-props")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+	dir := filepath.Join(s.baseDir, "corrupt-props")
+	require.NoError(s.T(), os.MkdirAll(dir, 0o755))
 
 	metaBytes, _ := json.Marshal(secretMetadata{Classifier: clf, Type: "postgresql"})
-	require.NoError(t, os.WriteFile(filepath.Join(dir, metadataFileName), metaBytes, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), []byte("not json{{"), 0o644))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, metadataFileName), metaBytes, 0o644))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), []byte("not json{{"), 0o644))
 
-	idx := newSecretIndex(base)
+	idx := newSecretIndex(s.baseDir)
 	resolved, ok := idx.resolve(clf, "postgresql", "")
-	assert.False(t, ok)
-	assert.Nil(t, resolved)
+	assert.False(s.T(), ok)
+	assert.Nil(s.T(), resolved)
 }
 
-func TestGetConnection_ReadsFileFresh(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestGetConnection_ReadsFileFresh() {
 	clf := serviceClassifier("svc", "ns")
 	props := map[string]interface{}{"url": "pg://host", "password": "old-pass"}
-	dir := writeSecret(t, base, "secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	dir := s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	p := newMountedSecretProvider(base)
+	p := newMountedSecretProvider(s.baseDir)
 
 	conn1, err := p.GetConnection("postgresql", clf, rest.BaseDbParams{})
-	require.NoError(t, err)
-	assert.Equal(t, "old-pass", conn1["password"])
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "old-pass", conn1["password"])
 
-	// rotate the password in-place (kubelet updates the file)
-	newProps := map[string]interface{}{"url": "pg://host", "password": "new-pass"}
-	newBytes, _ := json.Marshal(newProps)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), newBytes, 0o644))
+	newBytes, _ := json.Marshal(map[string]interface{}{"url": "pg://host", "password": "new-pass"})
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), newBytes, 0o644))
 
 	conn2, err := p.GetConnection("postgresql", clf, rest.BaseDbParams{})
-	require.NoError(t, err)
-	assert.Equal(t, "new-pass", conn2["password"], "provider must re-read the file, not return cached props")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "new-pass", conn2["password"], "provider must re-read the file, not return cached props")
 }
 
-func TestGetOrCreateDb_ReturnsLogicalDb(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ReturnsLogicalDb() {
 	clf := serviceClassifier("svc", "ns")
 	props := map[string]interface{}{"url": "pg://host", "username": "u"}
-	writeSecret(t, base, "secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	p := newMountedSecretProvider(base)
+	p := newMountedSecretProvider(s.baseDir)
 	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
-	require.NoError(t, err)
-	require.NotNil(t, db)
-	assert.Equal(t, "postgresql", db.Type)
-	assert.Equal(t, clf, db.Classifier)
-	assert.Equal(t, "pg://host", db.ConnectionProperties["url"])
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), db)
+	assert.Equal(s.T(), "postgresql", db.Type)
+	assert.Equal(s.T(), clf, db.Classifier)
+	assert.Equal(s.T(), "pg://host", db.ConnectionProperties["url"])
 }
 
-func TestGetOrCreateDb_Miss_ReturnsNil(t *testing.T) {
-	base := t.TempDir()
-	p := newMountedSecretProvider(base)
+func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_Miss_ReturnsNil() {
+	p := newMountedSecretProvider(s.baseDir)
 	db, err := p.GetOrCreateDb("postgresql", serviceClassifier("svc", "ns"), rest.BaseDbParams{})
-	assert.NoError(t, err)
-	assert.Nil(t, db)
+	assert.NoError(s.T(), err)
+	assert.Nil(s.T(), db)
 }
 
-func TestGetConnection_Miss_ReturnsNil(t *testing.T) {
-	base := t.TempDir()
-	p := newMountedSecretProvider(base)
+func (s *MountedSecretProviderTestSuite) TestGetConnection_Miss_ReturnsNil() {
+	p := newMountedSecretProvider(s.baseDir)
 	props, err := p.GetConnection("postgresql", serviceClassifier("svc", "ns"), rest.BaseDbParams{})
-	assert.NoError(t, err)
-	assert.Nil(t, props)
+	assert.NoError(s.T(), err)
+	assert.Nil(s.T(), props)
 }
 
-func TestResolve_WithRole(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestResolve_WithRole() {
 	clf := serviceClassifier("svc", "ns")
 	props := map[string]interface{}{"url": "pg://ro-host"}
-	writeSecret(t, base, "secret-ro", secretMetadata{Classifier: clf, Type: "postgresql", UserRole: "ro"}, props)
+	s.writeSecret("secret-ro", secretMetadata{Classifier: clf, Type: "postgresql", UserRole: "ro"}, props)
 
-	idx := newSecretIndex(base)
+	idx := newSecretIndex(s.baseDir)
 
-	// matching role hits
 	resolved, ok := idx.resolve(clf, "postgresql", "ro")
-	assert.True(t, ok)
-	assert.Equal(t, "pg://ro-host", resolved["url"])
+	assert.True(s.T(), ok)
+	assert.Equal(s.T(), "pg://ro-host", resolved["url"])
 
-	// different role misses
 	_, ok = idx.resolve(clf, "postgresql", "admin")
-	assert.False(t, ok)
+	assert.False(s.T(), ok)
 }
 
-func TestRescan_NewSecretPickedUp(t *testing.T) {
-	base := t.TempDir()
+func (s *MountedSecretProviderTestSuite) TestRescan_NewSecretPickedUp() {
 	clf := serviceClassifier("new-svc", "ns")
 
-	p := newMountedSecretProvider(base)
-
-	// miss before the secret exists
+	p := newMountedSecretProvider(s.baseDir)
 	db, _ := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
-	assert.Nil(t, db)
+	assert.Nil(s.T(), db)
 
-	// write the secret
 	props := map[string]interface{}{"url": "pg://new-host"}
-	writeSecret(t, base, "new-secret", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	s.writeSecret("new-secret", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	// artificially age the lastRescan so the throttle passes
 	p.idx.mu.Lock()
 	p.idx.lastRescan = time.Now().Add(-rescanThrottleDuration - time.Second)
 	p.idx.mu.Unlock()
 
 	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
-	require.NoError(t, err)
-	require.NotNil(t, db, "provider should pick up the new secret after throttled rescan")
-	assert.Equal(t, "pg://new-host", db.ConnectionProperties["url"])
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), db, "provider should pick up the new secret after throttled rescan")
+	assert.Equal(s.T(), "pg://new-host", db.ConnectionProperties["url"])
 }
 
-func TestCanonicalClassifier_ScopeNormalized(t *testing.T) {
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_ScopeNormalized() {
 	clf1 := map[string]interface{}{"microserviceName": "svc", "namespace": "ns", "scope": "Service"}
 	clf2 := map[string]interface{}{"microserviceName": "svc", "namespace": "ns", "scope": "service"}
-	assert.Equal(t, canonicalClassifier(clf1), canonicalClassifier(clf2))
+	assert.Equal(s.T(), canonicalClassifier(clf1), canonicalClassifier(clf2))
 }
 
-func TestCanonicalClassifier_StableKeyOrder(t *testing.T) {
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_StableKeyOrder() {
 	a := map[string]interface{}{"namespace": "ns", "microserviceName": "svc", "scope": "service"}
 	b := map[string]interface{}{"microserviceName": "svc", "scope": "service", "namespace": "ns"}
-	assert.Equal(t, canonicalClassifier(a), canonicalClassifier(b))
+	assert.Equal(s.T(), canonicalClassifier(a), canonicalClassifier(b))
 }
 
-func TestCanonicalClassifier_OmitsEmptyValues(t *testing.T) {
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_OmitsEmptyValues() {
 	with := map[string]interface{}{"microserviceName": "svc", "namespace": "ns", "scope": "service", "tenantId": ""}
 	without := map[string]interface{}{"microserviceName": "svc", "namespace": "ns", "scope": "service"}
-	assert.Equal(t, canonicalClassifier(with), canonicalClassifier(without))
+	assert.Equal(s.T(), canonicalClassifier(with), canonicalClassifier(without))
 }
 
-func TestCanonicalClassifier_NestedCustomKeys(t *testing.T) {
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_NestedCustomKeys() {
 	clf := map[string]interface{}{
 		"microserviceName": "svc",
 		"namespace":        "ns",
@@ -252,11 +243,10 @@ func TestCanonicalClassifier_NestedCustomKeys(t *testing.T) {
 		"customKeys":       map[string]interface{}{"z": "1", "a": "2"},
 	}
 	key := canonicalClassifier(clf)
-	// "a" must come before "z" in the output
-	assert.True(t, strings.Index(key, `"a"`) < strings.Index(key, `"z"`), "customKeys must be sorted: got %s", key)
+	assert.True(s.T(), strings.Index(key, `"a"`) < strings.Index(key, `"z"`), "customKeys must be sorted: got %s", key)
 }
 
-func TestMatchingKey_TypeLowercased(t *testing.T) {
+func (s *MountedSecretProviderTestSuite) TestMatchingKey_TypeLowercased() {
 	clf := serviceClassifier("svc", "ns")
-	assert.Equal(t, matchingKey(clf, "PostgreSQL", ""), matchingKey(clf, "postgresql", ""))
+	assert.Equal(s.T(), matchingKey(clf, "PostgreSQL", ""), matchingKey(clf, "postgresql", ""))
 }

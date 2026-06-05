@@ -18,9 +18,9 @@ const (
 	MountedSecretBasePathKey = "dbaas.connection-properties.mounted-secret.base-path"
 	mountedSecretDefaultPath = "/var/run/dbaas"
 
-	metadataFileName            = "metadata.json"
+	metadataFileName             = "metadata.json"
 	connectionPropertiesFileName = "connectionProperties.json"
-	rescanThrottleDuration      = 5 * time.Second
+	rescanThrottleDuration       = 60 * time.Second
 )
 
 type secretMetadata struct {
@@ -127,8 +127,7 @@ func matchingKey(clf map[string]interface{}, dbType, role string) string {
 }
 
 func canonicalClassifier(clf map[string]interface{}) string {
-	cleaned := canonicalMap(clf)
-	b, err := marshalSorted(cleaned)
+	b, err := marshalCanonical(clf)
 	if err != nil {
 		logger.Warnf("mounted-secret: failed to canonicalize classifier: %v", err)
 		return ""
@@ -136,66 +135,59 @@ func canonicalClassifier(clf map[string]interface{}) string {
 	return string(b)
 }
 
-func canonicalMap(m map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(m))
-	for k, v := range m {
+// marshalCanonical serializes a classifier map to stable JSON in one pass:
+// omits nil/empty strings, lowercases "scope", sorts keys at every level.
+func marshalCanonical(m map[string]interface{}) ([]byte, error) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	sb.WriteByte('{')
+	first := true
+	for _, k := range keys {
+		v := m[k]
 		if v == nil {
 			continue
 		}
+		var vBytes []byte
+		var err error
 		switch val := v.(type) {
 		case string:
-			s := val
 			if k == "scope" {
-				s = strings.ToLower(s)
+				val = strings.ToLower(val)
 			}
-			if s == "" {
+			if val == "" {
 				continue
 			}
-			out[k] = s
+			vBytes, err = json.Marshal(val)
 		case map[string]interface{}:
-			nested := canonicalMap(val)
-			if len(nested) > 0 {
-				out[k] = nested
+			vBytes, err = marshalCanonical(val)
+			if err == nil && string(vBytes) == "{}" {
+				continue
 			}
 		default:
-			out[k] = v
+			vBytes, err = json.Marshal(val)
 		}
+		if err != nil {
+			return nil, err
+		}
+		if !first {
+			sb.WriteByte(',')
+		}
+		kBytes, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		sb.Write(kBytes)
+		sb.WriteByte(':')
+		sb.Write(vBytes)
+		first = false
 	}
-	return out
-}
-
-func marshalSorted(v interface{}) ([]byte, error) {
-	switch val := v.(type) {
-	case map[string]interface{}:
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		var sb strings.Builder
-		sb.WriteByte('{')
-		for i, k := range keys {
-			if i > 0 {
-				sb.WriteByte(',')
-			}
-			kBytes, err := json.Marshal(k)
-			if err != nil {
-				return nil, err
-			}
-			vBytes, err := marshalSorted(val[k])
-			if err != nil {
-				return nil, err
-			}
-			sb.Write(kBytes)
-			sb.WriteByte(':')
-			sb.Write(vBytes)
-		}
-		sb.WriteByte('}')
-		return []byte(sb.String()), nil
-	default:
-		return json.Marshal(v)
-	}
+	sb.WriteByte('}')
+	return []byte(sb.String()), nil
 }
 
 type mountedSecretProvider struct {
