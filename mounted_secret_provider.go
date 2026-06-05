@@ -135,8 +135,6 @@ func canonicalClassifier(clf map[string]interface{}) string {
 	return string(b)
 }
 
-// marshalCanonical serializes a classifier map to stable JSON in one pass:
-// omits nil/empty strings, lowercases "scope", sorts keys at every level.
 func marshalCanonical(m map[string]interface{}) ([]byte, error) {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -148,31 +146,12 @@ func marshalCanonical(m map[string]interface{}) ([]byte, error) {
 	sb.WriteByte('{')
 	first := true
 	for _, k := range keys {
-		v := m[k]
-		if v == nil {
-			continue
-		}
-		var vBytes []byte
-		var err error
-		switch val := v.(type) {
-		case string:
-			if k == "scope" {
-				val = strings.ToLower(val)
-			}
-			if val == "" {
-				continue
-			}
-			vBytes, err = json.Marshal(val)
-		case map[string]interface{}:
-			vBytes, err = marshalCanonical(val)
-			if err == nil && string(vBytes) == "{}" {
-				continue
-			}
-		default:
-			vBytes, err = json.Marshal(val)
-		}
+		vBytes, err := marshalValue(k, m[k])
 		if err != nil {
 			return nil, err
+		}
+		if vBytes == nil {
+			continue
 		}
 		if !first {
 			sb.WriteByte(',')
@@ -188,6 +167,32 @@ func marshalCanonical(m map[string]interface{}) ([]byte, error) {
 	}
 	sb.WriteByte('}')
 	return []byte(sb.String()), nil
+}
+
+// marshalValue encodes a single classifier value canonically.
+// Returns nil to signal that the entry should be omitted.
+func marshalValue(key string, v interface{}) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch val := v.(type) {
+	case string:
+		if key == "scope" {
+			val = strings.ToLower(val)
+		}
+		if val == "" {
+			return nil, nil
+		}
+		return json.Marshal(val)
+	case map[string]interface{}:
+		b, err := marshalCanonical(val)
+		if err != nil || string(b) == "{}" {
+			return nil, err
+		}
+		return b, nil
+	default:
+		return json.Marshal(val)
+	}
 }
 
 type mountedSecretProvider struct {
