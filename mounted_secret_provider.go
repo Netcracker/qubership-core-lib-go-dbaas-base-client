@@ -11,11 +11,12 @@ import (
 
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	MountedSecretEnabledKey  = "dbaas.connection-properties.mounted-secret.enabled"
-	MountedSecretBasePathKey = "dbaas.connection-properties.mounted-secret.base-path"
+	mountedSecretEnabledKey  = "dbaas.connection-properties.mounted-secret.enabled"
+	mountedSecretBasePathKey = "dbaas.connection-properties.mounted-secret.base-path"
 	mountedSecretDefaultPath = "/var/run/dbaas"
 
 	metadataFileName             = "metadata.json"
@@ -27,19 +28,29 @@ type secretMetadata struct {
 	Classifier map[string]interface{} `json:"classifier"`
 	Type       string                 `json:"type"`
 	UserRole   string                 `json:"userRole,omitempty"`
+	Id         string                 `json:"id,omitempty"`
+	Name       string                 `json:"name,omitempty"`
+	Namespace  string                 `json:"namespace,omitempty"`
+	Settings   map[string]interface{} `json:"settings,omitempty"`
+}
+
+type indexEntry struct {
+	dirPath string
+	meta    secretMetadata
 }
 
 type secretIndex struct {
 	mu         sync.RWMutex
-	index      map[string]string // matchingKey → directory path
+	index      map[string]indexEntry // matchingKey → entry
 	basePath   string
 	lastRescan time.Time
+	sfGroup    singleflight.Group
 }
 
 func newSecretIndex(basePath string) *secretIndex {
 	idx := &secretIndex{
 		basePath: basePath,
-		index:    make(map[string]string),
+		index:    make(map[string]indexEntry),
 	}
 	idx.buildIndex()
 	return idx
@@ -52,7 +63,7 @@ func (idx *secretIndex) buildIndex() {
 		return
 	}
 
-	newIndex := make(map[string]string)
+	newIndex := make(map[string]indexEntry)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -72,8 +83,22 @@ func (idx *secretIndex) buildIndex() {
 			continue
 		}
 
+		if len(meta.Classifier) == 0 || meta.Type == "" {
+			logger.Warnf("mounted-secret: incomplete metadata in %q (missing classifier or type), skipping", dirPath)
+			continue
+		}
+
 		key := matchingKey(meta.Classifier, meta.Type, meta.UserRole)
-		newIndex[key] = dirPath
+		if key == "" || strings.HasPrefix(key, "|") {
+			// canonicalClassifier returned "" — classifier could not be serialized; skip
+			// rather than collapsing multiple bad entries into the same empty-canonical bucket.
+			logger.Warnf("mounted-secret: could not build canonical key for %q, skipping", dirPath)
+			continue
+		}
+		if existing, dup := newIndex[key]; dup {
+			logger.Warnf("mounted-secret: duplicate key %q in %q and %q — second entry wins; check operator configuration", key, existing.dirPath, dirPath)
+		}
+		newIndex[key] = indexEntry{dirPath: dirPath, meta: meta}
 	}
 
 	idx.mu.Lock()
@@ -83,45 +108,61 @@ func (idx *secretIndex) buildIndex() {
 }
 
 // resolve looks up the index and reads connectionProperties.json fresh on every call.
-// Returns (nil, false) on miss so the caller falls through to REST.
-func (idx *secretIndex) resolve(clf map[string]interface{}, dbType, role string) (map[string]interface{}, bool) {
+// Returns (nil, nil, false) on miss so the caller falls through to REST.
+func (idx *secretIndex) resolve(clf map[string]interface{}, dbType, role string) (map[string]interface{}, *secretMetadata, bool) {
 	key := matchingKey(clf, dbType, role)
 
 	idx.mu.RLock()
-	dirPath, found := idx.index[key]
+	entry, found := idx.index[key]
 	sinceRescan := time.Since(idx.lastRescan)
 	idx.mu.RUnlock()
 
 	if !found {
 		if sinceRescan >= rescanThrottleDuration {
-			idx.buildIndex()
-			idx.mu.RLock()
-			dirPath, found = idx.index[key]
-			idx.mu.RUnlock()
+			// singleflight collapses concurrent misses into one buildIndex call.
+			idx.sfGroup.Do("rescan", func() (interface{}, error) {
+				idx.buildIndex()
+				return nil, nil
+			})
 		}
-
+		idx.mu.RLock()
+		entry, found = idx.index[key]
+		idx.mu.RUnlock()
 		if !found {
-			return nil, false
+			return nil, nil, false
 		}
 	}
 
-	propsPath := filepath.Join(dirPath, connectionPropertiesFileName)
+	propsPath := filepath.Join(entry.dirPath, connectionPropertiesFileName)
 	data, err := os.ReadFile(propsPath)
 	if err != nil {
-		logger.Warnf("mounted-secret: cannot read %s in %q: %v", connectionPropertiesFileName, dirPath, err)
-		return nil, false
+		if os.IsNotExist(err) {
+			// Secret directory was removed; evict the stale index entry so subsequent
+			// calls don't keep hitting a path that no longer exists.
+			idx.mu.Lock()
+			delete(idx.index, key)
+			idx.mu.Unlock()
+			logger.Warnf("mounted-secret: secret removed from disk, evicting index entry for %q", entry.dirPath)
+		} else {
+			logger.Warnf("mounted-secret: cannot read %s in %q: %v", connectionPropertiesFileName, entry.dirPath, err)
+		}
+		return nil, nil, false
 	}
 
 	props := make(map[string]interface{})
 	if err := json.Unmarshal(data, &props); err != nil {
-		logger.Warnf("mounted-secret: corrupt %s in %q: %v", connectionPropertiesFileName, dirPath, err)
-		return nil, false
+		logger.Warnf("mounted-secret: corrupt %s in %q: %v", connectionPropertiesFileName, entry.dirPath, err)
+		return nil, nil, false
 	}
 
-	return props, true
+	return props, &entry.meta, true
 }
 
 // matchingKey builds the canonical lookup key: canonical(clf)|type|role
+// Role matching is exact string equality (after TrimSpace) against metadata.userRole.
+// There is no aggregator-side role resolution here — the client's params.Role and the
+// operator's metadata.userRole must match as strings. An empty role matches a secret
+// whose metadata.userRole was left unset (empty string).
 func matchingKey(clf map[string]interface{}, dbType, role string) string {
 	return canonicalClassifier(clf) + "|" + strings.ToLower(dbType) + "|" + strings.TrimSpace(role)
 }
@@ -203,21 +244,38 @@ func newMountedSecretProvider(basePath string) *mountedSecretProvider {
 	return &mountedSecretProvider{idx: newSecretIndex(basePath)}
 }
 
-func (p *mountedSecretProvider) GetOrCreateDb(dbType string, clf map[string]interface{}, _ rest.BaseDbParams) (*model.LogicalDb, error) {
-	props, ok := p.idx.resolve(clf, dbType, "")
+func (p *mountedSecretProvider) GetOrCreateDb(dbType string, clf map[string]interface{}, params rest.BaseDbParams) (*model.LogicalDb, error) {
+	props, meta, ok := p.idx.resolve(clf, dbType, params.Role)
 	if !ok {
 		return nil, nil
 	}
 	logger.Debugf("mounted-secret: GetOrCreateDb hit for type=%s classifier=%+v", dbType, clf)
+
+	// Prefer fields from metadata (populated by operator ≥ v8d7552a).
+	// Fall back to classifier["namespace"] / connectionProperties["name"] for older Secrets
+	// that predate those metadata fields.
+	ns := meta.Namespace
+	if ns == "" {
+		ns, _ = clf["namespace"].(string)
+	}
+	name := meta.Name
+	if name == "" {
+		name, _ = props["name"].(string)
+	}
+
 	return &model.LogicalDb{
+		Id:                   meta.Id,
 		Classifier:           clf,
 		Type:                 dbType,
 		ConnectionProperties: props,
+		Namespace:            ns,
+		Name:                 name,
+		Settings:             meta.Settings,
 	}, nil
 }
 
 func (p *mountedSecretProvider) GetConnection(dbType string, clf map[string]interface{}, params rest.BaseDbParams) (map[string]interface{}, error) {
-	props, ok := p.idx.resolve(clf, dbType, params.Role)
+	props, _, ok := p.idx.resolve(clf, dbType, params.Role)
 	if !ok {
 		return nil, nil
 	}
