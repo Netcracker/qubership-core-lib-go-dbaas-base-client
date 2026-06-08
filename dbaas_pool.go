@@ -20,8 +20,8 @@ func NewDbaaSPool(options ...model.PoolOptions) *DbaaSPool {
 	if options != nil {
 		providers = options[0].LogicalDbProviders
 	}
-	if configloader.GetKoanf().Bool(MountedSecretEnabledKey) {
-		basePath := configloader.GetOrDefaultString(MountedSecretBasePathKey, mountedSecretDefaultPath)
+	if configloader.GetKoanf().Bool(mountedSecretEnabledKey) {
+		basePath := configloader.GetOrDefaultString(mountedSecretBasePathKey, mountedSecretDefaultPath)
 		providers = append(providers, newMountedSecretProvider(basePath))
 	}
 	client := NewDbaasClient(model.ClientOptions{LogicalDbProviders: providers})

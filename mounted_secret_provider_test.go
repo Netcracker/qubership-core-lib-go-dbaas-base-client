@@ -65,7 +65,7 @@ func (s *MountedSecretProviderTestSuite) TestBuildIndex_ServiceScope() {
 	s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
 	idx := newSecretIndex(s.baseDir)
-	resolved, ok := idx.resolve(clf, "postgresql", "")
+	resolved, _, ok := idx.resolve(clf, "postgresql", "")
 	assert.True(s.T(), ok)
 	assert.Equal(s.T(), "postgres://host/db", resolved["url"])
 }
@@ -76,7 +76,7 @@ func (s *MountedSecretProviderTestSuite) TestBuildIndex_TenantScope() {
 	s.writeSecret("secret-tenant", secretMetadata{Classifier: clf, Type: "mongodb"}, props)
 
 	idx := newSecretIndex(s.baseDir)
-	resolved, ok := idx.resolve(clf, "mongodb", "")
+	resolved, _, ok := idx.resolve(clf, "mongodb", "")
 	assert.True(s.T(), ok)
 	assert.Equal(s.T(), "mongo://host/db", resolved["url"])
 }
@@ -87,21 +87,21 @@ func (s *MountedSecretProviderTestSuite) TestResolve_Miss_UnknownClassifier() {
 	s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
 	idx := newSecretIndex(s.baseDir)
-	resolved, ok := idx.resolve(serviceClassifier("other-svc", "team-a"), "postgresql", "")
+	resolved, _, ok := idx.resolve(serviceClassifier("other-svc", "team-a"), "postgresql", "")
 	assert.False(s.T(), ok)
 	assert.Nil(s.T(), resolved)
 }
 
 func (s *MountedSecretProviderTestSuite) TestResolve_Miss_EmptyDir() {
 	idx := newSecretIndex(s.baseDir)
-	resolved, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
+	resolved, _, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
 	assert.False(s.T(), ok)
 	assert.Nil(s.T(), resolved)
 }
 
 func (s *MountedSecretProviderTestSuite) TestResolve_Miss_BasepathMissing() {
 	idx := newSecretIndex("/nonexistent/path")
-	resolved, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
+	resolved, _, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
 	assert.False(s.T(), ok)
 	assert.Nil(s.T(), resolved)
 }
@@ -116,7 +116,7 @@ func (s *MountedSecretProviderTestSuite) TestBuildIndex_CorruptMetadata_Skipped(
 	s.writeSecret("good-secret", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
 	idx := newSecretIndex(s.baseDir)
-	_, ok := idx.resolve(clf, "postgresql", "")
+	_, _, ok := idx.resolve(clf, "postgresql", "")
 	assert.True(s.T(), ok, "good secret should still resolve despite corrupt neighbour")
 }
 
@@ -130,7 +130,7 @@ func (s *MountedSecretProviderTestSuite) TestResolve_CorruptConnectionProperties
 	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), []byte("not json{{"), 0o644))
 
 	idx := newSecretIndex(s.baseDir)
-	resolved, ok := idx.resolve(clf, "postgresql", "")
+	resolved, _, ok := idx.resolve(clf, "postgresql", "")
 	assert.False(s.T(), ok)
 	assert.Nil(s.T(), resolved)
 }
@@ -157,7 +157,15 @@ func (s *MountedSecretProviderTestSuite) TestGetConnection_ReadsFileFresh() {
 func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ReturnsLogicalDb() {
 	clf := serviceClassifier("svc", "ns")
 	props := map[string]interface{}{"url": "pg://host", "username": "u"}
-	s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+	meta := secretMetadata{
+		Classifier: clf,
+		Type:       "postgresql",
+		Id:         "db-123",
+		Name:       "my-db",
+		Namespace:  "ns",
+		Settings:   map[string]interface{}{"poolSize": float64(5)},
+	}
+	s.writeSecret("secret-a", meta, props)
 
 	p := newMountedSecretProvider(s.baseDir)
 	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
@@ -166,6 +174,28 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ReturnsLogicalDb() {
 	assert.Equal(s.T(), "postgresql", db.Type)
 	assert.Equal(s.T(), clf, db.Classifier)
 	assert.Equal(s.T(), "pg://host", db.ConnectionProperties["url"])
+	assert.Equal(s.T(), "db-123", db.Id)
+	assert.Equal(s.T(), "my-db", db.Name)
+	assert.Equal(s.T(), "ns", db.Namespace)
+	assert.Equal(s.T(), map[string]interface{}{"poolSize": float64(5)}, db.Settings)
+}
+
+// Backward-compat: older Secrets written before the operator added id/name/namespace/settings
+// to metadata.json. Namespace must fall back to classifier["namespace"], Name to
+// connectionProperties["name"], and Id/Settings remain empty.
+func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_BackwardCompat_OldMetadata() {
+	clf := serviceClassifier("svc", "team-b")
+	props := map[string]interface{}{"url": "pg://host", "name": "legacy-db"}
+	s.writeSecret("secret-old", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+
+	p := newMountedSecretProvider(s.baseDir)
+	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), db)
+	assert.Equal(s.T(), "team-b", db.Namespace, "Namespace must fall back to classifier[namespace]")
+	assert.Equal(s.T(), "legacy-db", db.Name, "Name must fall back to connectionProperties[name]")
+	assert.Empty(s.T(), db.Id)
+	assert.Nil(s.T(), db.Settings)
 }
 
 func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_Miss_ReturnsNil() {
@@ -189,12 +219,39 @@ func (s *MountedSecretProviderTestSuite) TestResolve_WithRole() {
 
 	idx := newSecretIndex(s.baseDir)
 
-	resolved, ok := idx.resolve(clf, "postgresql", "ro")
+	resolved, _, ok := idx.resolve(clf, "postgresql", "ro")
 	assert.True(s.T(), ok)
 	assert.Equal(s.T(), "pg://ro-host", resolved["url"])
 
-	_, ok = idx.resolve(clf, "postgresql", "admin")
+	_, _, ok = idx.resolve(clf, "postgresql", "admin")
 	assert.False(s.T(), ok)
+}
+
+// GetOrCreateDb must forward params.Role into resolve (symmetric with GetConnection).
+// An explicit role hits only the matching secret; an empty role hits a roleless secret.
+func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ForwardsRole() {
+	clf := serviceClassifier("svc", "ns")
+	s.writeSecret("secret-ro", secretMetadata{Classifier: clf, Type: "postgresql", UserRole: "ro"},
+		map[string]interface{}{"url": "pg://ro-host"})
+	s.writeSecret("secret-admin", secretMetadata{Classifier: clf, Type: "postgresql", UserRole: "admin"},
+		map[string]interface{}{"url": "pg://admin-host"})
+
+	p := newMountedSecretProvider(s.baseDir)
+
+	dbRo, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{Role: "ro"})
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), dbRo)
+	assert.Equal(s.T(), "pg://ro-host", dbRo.ConnectionProperties["url"])
+
+	dbAdmin, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{Role: "admin"})
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), dbAdmin)
+	assert.Equal(s.T(), "pg://admin-host", dbAdmin.ConnectionProperties["url"])
+
+	// empty role does not match a secret with an explicit userRole
+	dbNone, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
+	require.NoError(s.T(), err)
+	assert.Nil(s.T(), dbNone, "empty role must not match a secret that has userRole set")
 }
 
 func (s *MountedSecretProviderTestSuite) TestRescan_NewSecretPickedUp() {
@@ -249,4 +306,103 @@ func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_NestedCustomKey
 func (s *MountedSecretProviderTestSuite) TestMatchingKey_TypeLowercased() {
 	clf := serviceClassifier("svc", "ns")
 	assert.Equal(s.T(), matchingKey(clf, "PostgreSQL", ""), matchingKey(clf, "postgresql", ""))
+}
+
+func (s *MountedSecretProviderTestSuite) TestBuildIndex_DuplicateKey_LastWins() {
+	clf := serviceClassifier("svc", "ns")
+	props1 := map[string]interface{}{"url": "pg://first"}
+	props2 := map[string]interface{}{"url": "pg://second"}
+	s.writeSecret("secret-first", secretMetadata{Classifier: clf, Type: "postgresql"}, props1)
+	s.writeSecret("secret-second", secretMetadata{Classifier: clf, Type: "postgresql"}, props2)
+
+	idx := newSecretIndex(s.baseDir)
+	resolved, _, ok := idx.resolve(clf, "postgresql", "")
+	assert.True(s.T(), ok, "one of the duplicate secrets should still resolve")
+	// both URLs are valid — we just verify exactly one entry is kept (no panic, no empty result)
+	url, _ := resolved["url"].(string)
+	assert.True(s.T(), url == "pg://first" || url == "pg://second", "got unexpected url %q", url)
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_EvictsStaleEntry() {
+	clf := serviceClassifier("svc", "ns")
+	props := map[string]interface{}{"url": "pg://host"}
+	dir := s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
+
+	p := newMountedSecretProvider(s.baseDir)
+
+	// confirm it resolves before removal
+	result, _, ok := p.idx.resolve(clf, "postgresql", "")
+	require.True(s.T(), ok)
+	assert.Equal(s.T(), "pg://host", result["url"])
+
+	// remove the secret directory from disk
+	require.NoError(s.T(), os.RemoveAll(dir))
+
+	// next resolve should return nil and evict the entry
+	result, _, ok = p.idx.resolve(clf, "postgresql", "")
+	assert.False(s.T(), ok)
+	assert.Nil(s.T(), result)
+
+	// entry must be gone from the index
+	p.idx.mu.RLock()
+	_, still := p.idx.index[matchingKey(clf, "postgresql", "")]
+	p.idx.mu.RUnlock()
+	assert.False(s.T(), still, "stale entry should have been evicted from the index")
+}
+
+// writeRawSecret writes metadata.json as a pre-formed JSON literal (exactly as the
+// dbaas-operator would emit it) so golden-contract tests are not affected by Go's
+// json.Marshal key ordering.
+func (s *MountedSecretProviderTestSuite) writeRawSecret(secretName, rawMeta string, props map[string]interface{}) {
+	dir := filepath.Join(s.baseDir, secretName)
+	require.NoError(s.T(), os.MkdirAll(dir, 0o755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, metadataFileName), []byte(rawMeta), 0o644))
+	propsBytes, err := json.Marshal(props)
+	require.NoError(s.T(), err)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, connectionPropertiesFileName), propsBytes, 0o644))
+}
+
+// Golden-contract tests pin the cross-system canonicalization agreement: metadata.json is
+// written as a raw literal (as the dbaas-operator would write it) and resolve must hit for
+// the matching app-side classifier. Any drift between the operator's ClassifierFlatMap and
+// this client's marshalCanonical surfaces here as a failing test rather than a silent miss.
+
+func (s *MountedSecretProviderTestSuite) TestGoldenContract_ServiceScope() {
+	rawMeta := `{"classifier":{"microserviceName":"my-svc","namespace":"team-a","scope":"service"},"type":"postgresql"}`
+	s.writeRawSecret("golden-service", rawMeta, map[string]interface{}{"url": "pg://golden-service"})
+
+	idx := newSecretIndex(s.baseDir)
+	clf := map[string]interface{}{"microserviceName": "my-svc", "namespace": "team-a", "scope": "service"}
+	resolved, _, ok := idx.resolve(clf, "postgresql", "")
+	assert.True(s.T(), ok, "service-scope golden contract: resolve must hit")
+	assert.Equal(s.T(), "pg://golden-service", resolved["url"])
+}
+
+func (s *MountedSecretProviderTestSuite) TestGoldenContract_TenantScope() {
+	rawMeta := `{"classifier":{"microserviceName":"my-svc","namespace":"team-a","scope":"tenant","tenantId":"acme"},"type":"mongodb"}`
+	s.writeRawSecret("golden-tenant", rawMeta, map[string]interface{}{"url": "mongo://golden-tenant"})
+
+	idx := newSecretIndex(s.baseDir)
+	clf := map[string]interface{}{"microserviceName": "my-svc", "namespace": "team-a", "scope": "tenant", "tenantId": "acme"}
+	resolved, _, ok := idx.resolve(clf, "mongodb", "")
+	assert.True(s.T(), ok, "tenant-scope golden contract: resolve must hit")
+	assert.Equal(s.T(), "mongo://golden-tenant", resolved["url"])
+}
+
+func (s *MountedSecretProviderTestSuite) TestGoldenContract_CustomKeys_Nested() {
+	// Operator stores customKeys as a nested map. App must also pass customKeys as a nested
+	// map — passing them flat (as top-level keys) is a different classifier and will miss.
+	rawMeta := `{"classifier":{"customKeys":{"env":"prod","tier":"db"},"microserviceName":"my-svc","namespace":"team-a","scope":"service"},"type":"postgresql"}`
+	s.writeRawSecret("golden-custom", rawMeta, map[string]interface{}{"url": "pg://golden-custom"})
+
+	idx := newSecretIndex(s.baseDir)
+	clf := map[string]interface{}{
+		"microserviceName": "my-svc",
+		"namespace":        "team-a",
+		"scope":            "service",
+		"customKeys":       map[string]interface{}{"env": "prod", "tier": "db"},
+	}
+	resolved, _, ok := idx.resolve(clf, "postgresql", "")
+	assert.True(s.T(), ok, "customKeys golden contract: resolve must hit when app passes customKeys as nested map")
+	assert.Equal(s.T(), "pg://golden-custom", resolved["url"])
 }
