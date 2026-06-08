@@ -69,42 +69,42 @@ func (idx *secretIndex) buildIndex() {
 			continue
 		}
 		dirPath := filepath.Join(idx.basePath, entry.Name())
-		metaPath := filepath.Join(dirPath, metadataFileName)
-
-		data, err := os.ReadFile(metaPath)
-		if err != nil {
-			// no metadata.json — skip silently
-			continue
-		}
-
-		var meta secretMetadata
-		if err := json.Unmarshal(data, &meta); err != nil {
-			logger.Warnf("mounted-secret: corrupt %s in %q: %v", metadataFileName, dirPath, err)
-			continue
-		}
-
-		if len(meta.Classifier) == 0 || meta.Type == "" {
-			logger.Warnf("mounted-secret: incomplete metadata in %q (missing classifier or type), skipping", dirPath)
-			continue
-		}
-
-		key := matchingKey(meta.Classifier, meta.Type, meta.UserRole)
-		if key == "" || strings.HasPrefix(key, "|") {
-			// canonicalClassifier returned "" — classifier could not be serialized; skip
-			// rather than collapsing multiple bad entries into the same empty-canonical bucket.
-			logger.Warnf("mounted-secret: could not build canonical key for %q, skipping", dirPath)
-			continue
-		}
-		if existing, dup := newIndex[key]; dup {
-			logger.Warnf("mounted-secret: duplicate key %q in %q and %q — second entry wins; check operator configuration", key, existing.dirPath, dirPath)
-		}
-		newIndex[key] = indexEntry{dirPath: dirPath, meta: meta}
+		indexSecretDir(dirPath, newIndex)
 	}
 
 	idx.mu.Lock()
 	idx.index = newIndex
 	idx.lastRescan = time.Now()
 	idx.mu.Unlock()
+}
+
+func indexSecretDir(dirPath string, newIndex map[string]indexEntry) {
+	data, err := os.ReadFile(filepath.Join(dirPath, metadataFileName))
+	if err != nil {
+		// no metadata.json — skip silently
+		return
+	}
+
+	var meta secretMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		logger.Warnf("mounted-secret: corrupt %s in %q: %v", metadataFileName, dirPath, err)
+		return
+	}
+
+	if len(meta.Classifier) == 0 || meta.Type == "" {
+		logger.Warnf("mounted-secret: incomplete metadata in %q (missing classifier or type), skipping", dirPath)
+		return
+	}
+
+	key := matchingKey(meta.Classifier, meta.Type, meta.UserRole)
+	if key == "" || strings.HasPrefix(key, "|") {
+		logger.Warnf("mounted-secret: could not build canonical key for %q, skipping", dirPath)
+		return
+	}
+	if existing, dup := newIndex[key]; dup {
+		logger.Warnf("mounted-secret: duplicate key %q in %q and %q — second entry wins; check operator configuration", key, existing.dirPath, dirPath)
+	}
+	newIndex[key] = indexEntry{dirPath: dirPath, meta: meta}
 }
 
 // resolve looks up the index and reads connectionProperties.json fresh on every call.
