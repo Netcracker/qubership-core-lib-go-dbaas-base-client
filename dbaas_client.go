@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	intermodel "github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/internal/model"
@@ -46,7 +48,11 @@ type dbaasClientImpl struct {
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	dbaasUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
-	if configloader.GetKoanf().Bool("security.m2m.kubernetes.enabled") {
+	k8sM2mEnabled, err := strconv.ParseBool(os.Getenv("KUBERNETES_M2M_ENABLED"))
+	if err != nil {
+		k8sM2mEnabled = false
+	}
+	if k8sM2mEnabled {
 		if configloader.GetKoanf().Exists("api.dbaas.address") {
 			dbaasUrl = configloader.GetOrDefaultString("api.dbaas.address", dbaasUrl)
 		} else {
