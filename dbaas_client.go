@@ -48,10 +48,7 @@ type dbaasClientImpl struct {
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	dbaasUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
-	k8sM2mEnabled, err := strconv.ParseBool(os.Getenv("KUBERNETES_M2M_ENABLED"))
-	if err != nil {
-		k8sM2mEnabled = false
-	}
+	k8sM2mEnabled, _ := strconv.ParseBool(os.Getenv("KUBERNETES_M2M_ENABLED"))
 	if k8sM2mEnabled {
 		if configloader.GetKoanf().Exists("api.dbaas.address") {
 			dbaasUrl = configloader.GetOrDefaultString("api.dbaas.address", dbaasUrl)
