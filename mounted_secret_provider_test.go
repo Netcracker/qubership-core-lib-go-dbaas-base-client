@@ -333,6 +333,48 @@ func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_NestedCustomKey
 	assert.True(s.T(), strings.Index(key, `"a"`) < strings.Index(key, `"z"`), "customKeys must be sorted: got %s", key)
 }
 
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_PreservesEmptyCustomKeyValues() {
+	withEmptyCustomKey := map[string]interface{}{
+		"microserviceName": "svc",
+		"namespace":        "ns",
+		"scope":            "service",
+		"customKeys":       map[string]interface{}{"logicalDBName": ""},
+	}
+	withoutCustomKeys := map[string]interface{}{
+		"microserviceName": "svc",
+		"namespace":        "ns",
+		"scope":            "service",
+	}
+
+	assert.NotEqual(s.T(), canonicalClassifier(withEmptyCustomKey), canonicalClassifier(withoutCustomKeys))
+	assert.Contains(s.T(), canonicalClassifier(withEmptyCustomKey), `"logicalDBName":""`)
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_EmptyCustomKeyDoesNotMatchMissingCustomKeys() {
+	withEmptyCustomKey := map[string]interface{}{
+		"microserviceName": "svc",
+		"namespace":        "ns",
+		"scope":            "service",
+		"customKeys":       map[string]interface{}{"logicalDBName": ""},
+	}
+	withoutCustomKeys := map[string]interface{}{
+		"microserviceName": "svc",
+		"namespace":        "ns",
+		"scope":            "service",
+	}
+	s.writeSecret("secret-empty-custom-key", secretMetadata{Classifier: withEmptyCustomKey, Type: "postgresql"},
+		map[string]interface{}{"url": "pg://empty-custom-key"})
+
+	idx := newSecretIndex(s.baseDir)
+	resolved, _, ok := idx.resolve(withEmptyCustomKey, "postgresql", "")
+	assert.True(s.T(), ok)
+	assert.Equal(s.T(), "pg://empty-custom-key", resolved["url"])
+
+	resolved, _, ok = idx.resolve(withoutCustomKeys, "postgresql", "")
+	assert.False(s.T(), ok)
+	assert.Nil(s.T(), resolved)
+}
+
 func (s *MountedSecretProviderTestSuite) TestMatchingKey_TypeLowercased() {
 	clf := serviceClassifier("svc", "ns")
 	assert.Equal(s.T(), matchingKey(clf, "PostgreSQL", ""), matchingKey(clf, "postgresql", ""))

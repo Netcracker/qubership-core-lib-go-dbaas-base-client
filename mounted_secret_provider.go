@@ -57,7 +57,11 @@ func newSecretIndex(basePath string) *secretIndex {
 func (idx *secretIndex) buildIndex() {
 	entries, err := os.ReadDir(idx.basePath)
 	if err != nil {
-		logger.Warnf("mounted-secret: cannot read secret path %q: %v", idx.basePath, err)
+		if os.IsNotExist(err) {
+			logger.Debugf("mounted-secret: secret path %q not present, skipping (falling back to REST)", idx.basePath)
+		} else {
+			logger.Warnf("mounted-secret: cannot read secret path %q: %v", idx.basePath, err)
+		}
 		return
 	}
 
@@ -175,6 +179,10 @@ func canonicalClassifier(clf map[string]interface{}) string {
 }
 
 func marshalCanonical(m map[string]interface{}) ([]byte, error) {
+	return marshalCanonicalMap(m, true)
+}
+
+func marshalCanonicalMap(m map[string]interface{}, topLevel bool) ([]byte, error) {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -185,7 +193,7 @@ func marshalCanonical(m map[string]interface{}) ([]byte, error) {
 	sb.WriteByte('{')
 	first := true
 	for _, k := range keys {
-		vBytes, err := marshalValue(k, m[k])
+		vBytes, err := marshalValue(k, m[k], topLevel)
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +218,7 @@ func marshalCanonical(m map[string]interface{}) ([]byte, error) {
 
 // marshalValue encodes a single classifier value canonically.
 // Returns nil to signal that the entry should be omitted.
-func marshalValue(key string, v interface{}) ([]byte, error) {
+func marshalValue(key string, v interface{}, topLevel bool) ([]byte, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -219,12 +227,12 @@ func marshalValue(key string, v interface{}) ([]byte, error) {
 		if key == "scope" {
 			val = strings.ToLower(val)
 		}
-		if val == "" {
+		if topLevel && isOmittedTopLevelEmptyString(key, val) {
 			return nil, nil
 		}
 		return json.Marshal(val)
 	case map[string]interface{}:
-		b, err := marshalCanonical(val)
+		b, err := marshalCanonicalMap(val, false)
 		if err != nil || string(b) == "{}" {
 			return nil, err
 		}
@@ -232,6 +240,10 @@ func marshalValue(key string, v interface{}) ([]byte, error) {
 	default:
 		return json.Marshal(val)
 	}
+}
+
+func isOmittedTopLevelEmptyString(key, val string) bool {
+	return val == "" && (key == "namespace" || key == "tenantId")
 }
 
 type mountedSecretProvider struct {
