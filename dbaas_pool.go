@@ -6,7 +6,6 @@ import (
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/cache"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
-	"github.com/netcracker/qubership-core-lib-go/v3/configloader"
 )
 
 type DbaaSPool struct {
@@ -17,13 +16,10 @@ type DbaaSPool struct {
 func NewDbaaSPool(options ...model.PoolOptions) *DbaaSPool {
 	poolCache := &cache.DbaaSCache{LogicalDbCache: make(map[cache.Key]interface{})}
 	var providers []model.LogicalDbProvider
-	if options != nil {
+	if len(options) > 0 {
 		providers = options[0].LogicalDbProviders
 	}
-	if configloader.GetKoanf().Bool(mountedSecretEnabledKey) {
-		basePath := configloader.GetOrDefaultString(mountedSecretBasePathKey, mountedSecretDefaultPath)
-		providers = append(providers, newMountedSecretProvider(basePath))
-	}
+	providers = append(providers, newMountedSecretProvider())
 	client := NewDbaasClient(model.ClientOptions{LogicalDbProviders: providers})
 	return &DbaaSPool{poolCache: poolCache, Client: client}
 }

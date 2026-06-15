@@ -15,9 +15,7 @@ import (
 )
 
 const (
-	mountedSecretEnabledKey  = "dbaas.connection-properties.mounted-secret.enabled"
-	mountedSecretBasePathKey = "dbaas.connection-properties.mounted-secret.base-path"
-	mountedSecretDefaultPath = "/var/run/dbaas"
+	mountedSecretPath = "/etc/secrets/dbaas-secrets"
 
 	metadataFileName             = "metadata.json"
 	connectionPropertiesFileName = "connectionProperties.json"
@@ -59,7 +57,7 @@ func newSecretIndex(basePath string) *secretIndex {
 func (idx *secretIndex) buildIndex() {
 	entries, err := os.ReadDir(idx.basePath)
 	if err != nil {
-		logger.Warnf("mounted-secret: cannot read base-path %q: %v", idx.basePath, err)
+		logger.Warnf("mounted-secret: cannot read secret path %q: %v", idx.basePath, err)
 		return
 	}
 
@@ -240,7 +238,11 @@ type mountedSecretProvider struct {
 	idx *secretIndex
 }
 
-func newMountedSecretProvider(basePath string) *mountedSecretProvider {
+func newMountedSecretProvider() *mountedSecretProvider {
+	return newMountedSecretProviderForPath(mountedSecretPath)
+}
+
+func newMountedSecretProviderForPath(basePath string) *mountedSecretProvider {
 	return &mountedSecretProvider{idx: newSecretIndex(basePath)}
 }
 
@@ -251,7 +253,7 @@ func (p *mountedSecretProvider) GetOrCreateDb(dbType string, clf map[string]inte
 	}
 	logger.Debugf("mounted-secret: GetOrCreateDb hit for type=%s classifier=%+v", dbType, clf)
 
-	// Prefer fields from metadata (populated by operator ≥ v8d7552a).
+	// Prefer fields from metadata (populated by operator >= v8d7552a).
 	// Fall back to classifier["namespace"] / connectionProperties["name"] for older Secrets
 	// that predate those metadata fields.
 	ns := meta.Namespace

@@ -140,7 +140,7 @@ func (s *MountedSecretProviderTestSuite) TestGetConnection_ReadsFileFresh() {
 	props := map[string]interface{}{"url": "pg://host", "password": "old-pass"}
 	dir := s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 
 	conn1, err := p.GetConnection("postgresql", clf, rest.BaseDbParams{})
 	require.NoError(s.T(), err)
@@ -167,7 +167,7 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ReturnsLogicalDb() {
 	}
 	s.writeSecret("secret-a", meta, props)
 
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
 	require.NoError(s.T(), err)
 	require.NotNil(s.T(), db)
@@ -188,7 +188,7 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_BackwardCompat_OldMet
 	props := map[string]interface{}{"url": "pg://host", "name": "legacy-db"}
 	s.writeSecret("secret-old", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
 	require.NoError(s.T(), err)
 	require.NotNil(s.T(), db)
@@ -197,16 +197,15 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_BackwardCompat_OldMet
 	assert.Empty(s.T(), db.Id)
 	assert.Nil(s.T(), db.Settings)
 }
-
 func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_Miss_ReturnsNil() {
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 	db, err := p.GetOrCreateDb("postgresql", serviceClassifier("svc", "ns"), rest.BaseDbParams{})
 	assert.NoError(s.T(), err)
 	assert.Nil(s.T(), db)
 }
 
 func (s *MountedSecretProviderTestSuite) TestGetConnection_Miss_ReturnsNil() {
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 	props, err := p.GetConnection("postgresql", serviceClassifier("svc", "ns"), rest.BaseDbParams{})
 	assert.NoError(s.T(), err)
 	assert.Nil(s.T(), props)
@@ -236,7 +235,7 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ForwardsRole() {
 	s.writeSecret("secret-admin", secretMetadata{Classifier: clf, Type: "postgresql", UserRole: "admin"},
 		map[string]interface{}{"url": "pg://admin-host"})
 
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 
 	dbRo, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{Role: "ro"})
 	require.NoError(s.T(), err)
@@ -257,7 +256,7 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ForwardsRole() {
 func (s *MountedSecretProviderTestSuite) TestRescan_NewSecretPickedUp() {
 	clf := serviceClassifier("new-svc", "ns")
 
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 	db, _ := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
 	assert.Nil(s.T(), db)
 
@@ -328,7 +327,7 @@ func (s *MountedSecretProviderTestSuite) TestResolve_EvictsStaleEntry() {
 	props := map[string]interface{}{"url": "pg://host"}
 	dir := s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"}, props)
 
-	p := newMountedSecretProvider(s.baseDir)
+	p := newMountedSecretProviderForPath(s.baseDir)
 
 	// confirm it resolves before removal
 	result, _, ok := p.idx.resolve(clf, "postgresql", "")
