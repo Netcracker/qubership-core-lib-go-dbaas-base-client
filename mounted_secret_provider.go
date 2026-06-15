@@ -253,6 +253,10 @@ func (p *mountedSecretProvider) GetOrCreateDb(dbType string, clf map[string]inte
 	}
 	logger.Debugf("mounted-secret: GetOrCreateDb hit for type=%s classifier=%+v", dbType, clf)
 
+	connectionProperties := copyMap(props)
+	classifier := copyMap(clf)
+	settings := copyMap(meta.Settings)
+
 	// Prefer fields from metadata (populated by operator >= v8d7552a).
 	// Fall back to classifier["namespace"] / connectionProperties["name"] for older Secrets
 	// that predate those metadata fields.
@@ -267,12 +271,12 @@ func (p *mountedSecretProvider) GetOrCreateDb(dbType string, clf map[string]inte
 
 	return &model.LogicalDb{
 		Id:                   meta.Id,
-		Classifier:           clf,
+		Classifier:           classifier,
 		Type:                 dbType,
-		ConnectionProperties: props,
+		ConnectionProperties: connectionProperties,
 		Namespace:            ns,
 		Name:                 name,
-		Settings:             meta.Settings,
+		Settings:             settings,
 	}, nil
 }
 
@@ -282,5 +286,31 @@ func (p *mountedSecretProvider) GetConnection(dbType string, clf map[string]inte
 		return nil, nil
 	}
 	logger.Debugf("mounted-secret: GetConnection hit for type=%s classifier=%+v role=%s", dbType, clf, params.Role)
-	return props, nil
+	return copyMap(props), nil
+}
+
+func copyMap(src map[string]interface{}) map[string]interface{} {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]interface{}, len(src))
+	for key, value := range src {
+		dst[key] = copyValue(value)
+	}
+	return dst
+}
+
+func copyValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		return copyMap(typed)
+	case []interface{}:
+		copied := make([]interface{}, len(typed))
+		for i, item := range typed {
+			copied[i] = copyValue(item)
+		}
+		return copied
+	default:
+		return value
+	}
 }

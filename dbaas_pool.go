@@ -13,6 +13,12 @@ type DbaaSPool struct {
 	Client    DbaaSClient
 }
 
+type roleDiscriminator string
+
+func (r roleDiscriminator) GetValue() string {
+	return string(r)
+}
+
 func NewDbaaSPool(options ...model.PoolOptions) *DbaaSPool {
 	poolCache := &cache.DbaaSCache{LogicalDbCache: make(map[cache.Key]interface{})}
 	var providers []model.LogicalDbProvider
@@ -25,7 +31,7 @@ func NewDbaaSPool(options ...model.PoolOptions) *DbaaSPool {
 }
 
 func (p *DbaaSPool) GetOrCreateDb(ctx context.Context, dbType string, classifier map[string]interface{}, params rest.BaseDbParams) (*model.LogicalDb, error) {
-	key := cache.NewKey(dbType, classifier)
+	key := cache.NewKeyWithDiscriminator(dbType, classifier, roleDiscriminator(params.Role))
 	db, err := p.poolCache.Cache(key, func() (interface{}, error) {
 		return p.Client.GetOrCreateDb(ctx, dbType, classifier, params)
 	})

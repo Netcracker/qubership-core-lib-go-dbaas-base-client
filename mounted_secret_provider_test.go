@@ -180,6 +180,37 @@ func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ReturnsLogicalDb() {
 	assert.Equal(s.T(), map[string]interface{}{"poolSize": float64(5)}, db.Settings)
 }
 
+func (s *MountedSecretProviderTestSuite) TestGetOrCreateDb_ReturnsDefensiveMapCopies() {
+	clf := serviceClassifier("svc", "ns")
+	props := map[string]interface{}{"url": "pg://host", "username": "u"}
+	meta := secretMetadata{
+		Classifier: clf,
+		Type:       "postgresql",
+		Id:         "db-123",
+		Name:       "my-db",
+		Namespace:  "ns",
+		Settings:   map[string]interface{}{"poolSize": float64(5)},
+	}
+	s.writeSecret("secret-a", meta, props)
+
+	p := newMountedSecretProviderForPath(s.baseDir)
+	db, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), db)
+
+	db.Classifier["namespace"] = "mutated"
+	db.ConnectionProperties["url"] = "pg://mutated"
+	db.Settings["poolSize"] = float64(99)
+	assert.Equal(s.T(), "ns", clf["namespace"], "returned classifier must not share the caller map")
+
+	dbAgain, err := p.GetOrCreateDb("postgresql", clf, rest.BaseDbParams{})
+	require.NoError(s.T(), err)
+	require.NotNil(s.T(), dbAgain)
+	assert.Equal(s.T(), "ns", dbAgain.Classifier["namespace"])
+	assert.Equal(s.T(), "pg://host", dbAgain.ConnectionProperties["url"])
+	assert.Equal(s.T(), float64(5), dbAgain.Settings["poolSize"])
+}
+
 // Backward-compat: older Secrets written before the operator added id/name/namespace/settings
 // to metadata.json. Namespace must fall back to classifier["namespace"], Name to
 // connectionProperties["name"], and Id/Settings remain empty.
