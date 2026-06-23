@@ -380,19 +380,59 @@ func (s *MountedSecretProviderTestSuite) TestMatchingKey_TypeLowercased() {
 	assert.Equal(s.T(), matchingKey(clf, "PostgreSQL", ""), matchingKey(clf, "postgresql", ""))
 }
 
-func (s *MountedSecretProviderTestSuite) TestBuildIndex_DuplicateKey_LastWins() {
+func (s *MountedSecretProviderTestSuite) TestBuildIndex_DuplicateKey_LowestDirNameWins() {
 	clf := serviceClassifier("svc", "ns")
 	props1 := map[string]interface{}{"url": "pg://first"}
 	props2 := map[string]interface{}{"url": "pg://second"}
+	// "secret-first" < "secret-second": the lowest directory name must win, deterministically.
 	s.writeSecret("secret-first", secretMetadata{Classifier: clf, Type: "postgresql"}, props1)
 	s.writeSecret("secret-second", secretMetadata{Classifier: clf, Type: "postgresql"}, props2)
 
 	idx := newSecretIndex(s.baseDir)
 	resolved, _, ok := idx.resolve(clf, "postgresql", "")
-	assert.True(s.T(), ok, "one of the duplicate secrets should still resolve")
-	// both URLs are valid — we just verify exactly one entry is kept (no panic, no empty result)
-	url, _ := resolved["url"].(string)
-	assert.True(s.T(), url == "pg://first" || url == "pg://second", "got unexpected url %q", url)
+	assert.True(s.T(), ok)
+	assert.Equal(s.T(), "pg://first", resolved["url"], "lowest directory name must win on a duplicate key")
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_ReadsMetadataFresh() {
+	clf := serviceClassifier("svc", "ns")
+	dir := s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql", Name: "n1"},
+		map[string]interface{}{"url": "pg://host"})
+
+	idx := newSecretIndex(s.baseDir)
+	_, meta, ok := idx.resolve(clf, "postgresql", "")
+	require.True(s.T(), ok)
+	assert.Equal(s.T(), "n1", meta.Name)
+
+	// change a non-key descriptor field on disk — the next resolve must reflect it (fresh metadata).
+	newMeta, _ := json.Marshal(secretMetadata{Classifier: clf, Type: "postgresql", Name: "n2"})
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, metadataFileName), newMeta, 0o644))
+
+	_, meta, ok = idx.resolve(clf, "postgresql", "")
+	require.True(s.T(), ok)
+	assert.Equal(s.T(), "n2", meta.Name, "metadata must be re-read fresh on every resolve, not cached")
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_MetadataChangedInPlace_Evicted() {
+	clf := serviceClassifier("svc", "ns")
+	dir := s.writeSecret("secret-a", secretMetadata{Classifier: clf, Type: "postgresql"},
+		map[string]interface{}{"url": "pg://host"})
+
+	idx := newSecretIndex(s.baseDir)
+	_, _, ok := idx.resolve(clf, "postgresql", "")
+	require.True(s.T(), ok)
+
+	// the descriptor's classifier changes in place (different microserviceName -> different key)
+	movedMeta, _ := json.Marshal(secretMetadata{Classifier: serviceClassifier("other", "ns"), Type: "postgresql"})
+	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, metadataFileName), movedMeta, 0o644))
+
+	_, _, ok = idx.resolve(clf, "postgresql", "")
+	assert.False(s.T(), ok, "a descriptor that changed classifier in place must be evicted, not served under the old key")
+
+	idx.mu.RLock()
+	_, still := idx.index[matchingKey(clf, "postgresql", "")]
+	idx.mu.RUnlock()
+	assert.False(s.T(), still, "stale entry should be evicted from the index")
 }
 
 func (s *MountedSecretProviderTestSuite) TestResolve_EvictsStaleEntry() {
