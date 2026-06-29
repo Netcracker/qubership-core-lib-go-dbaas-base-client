@@ -518,3 +518,80 @@ func (s *MountedSecretProviderTestSuite) TestGoldenContract_CustomKeys_Nested() 
 	assert.True(s.T(), ok, "customKeys golden contract: resolve must hit when app passes customKeys as nested map")
 	assert.Equal(s.T(), "pg://golden-custom", resolved["url"])
 }
+
+// ── negative matching: tenant / role / extra-key (the "tricky" misses) ──────
+
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_ServiceVsTenantDiffer() {
+	assert.NotEqual(s.T(), canonicalClassifier(serviceClassifier("svc", "ns")),
+		canonicalClassifier(tenantClassifier("svc", "ns", "acme")),
+		"service and tenant scope are different identities")
+}
+
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_DifferentTenantIdDiffer() {
+	assert.NotEqual(s.T(), canonicalClassifier(tenantClassifier("svc", "ns", "acme")),
+		canonicalClassifier(tenantClassifier("svc", "ns", "globex")),
+		"different tenantId is a different identity")
+}
+
+func (s *MountedSecretProviderTestSuite) TestCanonicalClassifier_TopLevelKeySetDiffers() {
+	withExtra := serviceClassifier("svc", "ns")
+	withExtra["logicalDbName"] = "reports"
+	assert.NotEqual(s.T(), canonicalClassifier(serviceClassifier("svc", "ns")), canonicalClassifier(withExtra),
+		"an arbitrary top-level identity key present on only one side must diverge the canonical key")
+}
+
+func (s *MountedSecretProviderTestSuite) TestMatchingKey_RoleCaseSensitive() {
+	clf := serviceClassifier("svc", "ns")
+	assert.NotEqual(s.T(), matchingKey(clf, "postgresql", "admin"), matchingKey(clf, "postgresql", "Admin"),
+		"role is matched case-sensitively (unlike type, which is lower-cased)")
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_ServiceSecretDoesNotMatchTenantRequest() {
+	clf := serviceClassifier("svc", "ns")
+	s.writeSecret("svc-secret", secretMetadata{Classifier: clf, Type: "postgresql"},
+		map[string]interface{}{"url": "pg://svc"})
+
+	idx := newSecretIndex(s.baseDir)
+	_, _, ok := idx.resolve(clf, "postgresql", "")
+	assert.True(s.T(), ok, "service request hits the service secret")
+	_, _, ok = idx.resolve(tenantClassifier("svc", "ns", "acme"), "postgresql", "")
+	assert.False(s.T(), ok, "a tenant request must not be served by a service-scope secret")
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_DifferentTenantId_Misses() {
+	clf := tenantClassifier("svc", "ns", "acme")
+	s.writeSecret("tenant-secret", secretMetadata{Classifier: clf, Type: "postgresql"},
+		map[string]interface{}{"url": "pg://acme"})
+
+	idx := newSecretIndex(s.baseDir)
+	_, _, ok := idx.resolve(clf, "postgresql", "")
+	assert.True(s.T(), ok, "same tenantId hits")
+	_, _, ok = idx.resolve(tenantClassifier("svc", "ns", "globex"), "postgresql", "")
+	assert.False(s.T(), ok, "a different tenantId misses")
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_RoleMatchingIsCaseSensitive() {
+	clf := serviceClassifier("svc", "ns")
+	s.writeSecret("admin-secret", secretMetadata{Classifier: clf, Type: "postgresql", UserRole: "admin"},
+		map[string]interface{}{"url": "pg://admin"})
+
+	idx := newSecretIndex(s.baseDir)
+	_, _, ok := idx.resolve(clf, "postgresql", "admin")
+	assert.True(s.T(), ok, "exact-case role hits")
+	_, _, ok = idx.resolve(clf, "postgresql", "Admin")
+	assert.False(s.T(), ok, "role is case-sensitive (unlike type): 'Admin' must not match 'admin'")
+}
+
+func (s *MountedSecretProviderTestSuite) TestResolve_ExtraTopLevelKeyOnOneSide_Misses() {
+	withExtra := serviceClassifier("svc", "ns")
+	withExtra["logicalDbName"] = "reports"
+	s.writeSecret("extra-secret", secretMetadata{Classifier: withExtra, Type: "postgresql"},
+		map[string]interface{}{"url": "pg://extra"})
+
+	idx := newSecretIndex(s.baseDir)
+	_, _, ok := idx.resolve(serviceClassifier("svc", "ns"), "postgresql", "")
+	assert.False(s.T(), ok, "an extra top-level identity key on only the descriptor side must diverge the canonical key (silent-miss guard)")
+	resolved, _, ok := idx.resolve(withExtra, "postgresql", "")
+	assert.True(s.T(), ok, "the same extra key on both sides hits")
+	assert.Equal(s.T(), "pg://extra", resolved["url"])
+}
