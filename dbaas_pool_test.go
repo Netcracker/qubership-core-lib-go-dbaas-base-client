@@ -96,6 +96,30 @@ func TestDbaaSPool_CreateOrGetDatabaseFromCache(t *testing.T) {
 	assert.Equal(t, testLogicalDb, actualLogicalDbFromCache)
 }
 
+func TestDbaaSPool_CreateOrGetDatabaseCacheIsRoleAware(t *testing.T) {
+	classifier := map[string]interface{}{"key": "value"}
+	roParams := rest.BaseDbParams{Role: "ro"}
+	adminParams := rest.BaseDbParams{Role: "admin"}
+	roLogicalDb := &model.LogicalDb{Id: "ro", Classifier: classifier, Type: DB_TYPE}
+	adminLogicalDb := &model.LogicalDb{Id: "admin", Classifier: classifier, Type: DB_TYPE}
+	client := new(mockDbaasClient)
+	client.On("GetOrCreateDb", DB_TYPE, classifier, roParams).Return(roLogicalDb, nil).Once()
+	client.On("GetOrCreateDb", DB_TYPE, classifier, adminParams).Return(adminLogicalDb, nil).Once()
+
+	dbaasPool := NewDbaaSPool()
+	dbaasPool.Client = client
+
+	actualRo, err := dbaasPool.GetOrCreateDb(context.Background(), DB_TYPE, classifier, roParams)
+	assert.NoError(t, err)
+	assert.Equal(t, roLogicalDb, actualRo)
+
+	actualAdmin, err := dbaasPool.GetOrCreateDb(context.Background(), DB_TYPE, classifier, adminParams)
+	assert.NoError(t, err)
+	assert.Equal(t, adminLogicalDb, actualAdmin)
+
+	client.AssertExpectations(t)
+}
+
 func TestDbaaSPool_CreateOrGetDatabaseReturnError(t *testing.T) {
 	classifier := map[string]interface{}{"key": "value"}
 	params := rest.BaseDbParams{}
