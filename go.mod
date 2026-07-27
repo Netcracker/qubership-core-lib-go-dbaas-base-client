@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/netcracker/qubership-core-lib-go/v3 v3.13.2
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sync v0.21.0
 )
 
 require (
@@ -25,7 +26,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/viney-shih/go-lock v1.1.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.3 // indirect
-	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
