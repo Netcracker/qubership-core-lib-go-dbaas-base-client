@@ -237,12 +237,9 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 	delay := time.Duration(delayMs) * time.Millisecond
 
 	var resp *http.Response
-	var attemptCount int
 	err := retry.Do(
 		func() error {
 			var err error
-
-			attemptCount++
 
 			resp, err = d.client.DoRequest(ctx, httpMethod, dbaasUrl, map[string][]string{
 				"Content-Type": {"application/json"},
