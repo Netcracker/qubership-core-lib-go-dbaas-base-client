@@ -339,9 +339,14 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 			lastErr = retryErr.Unwrap()
 		}
 
+		var httpCode int
+		if resp != nil {
+			httpCode = resp.StatusCode
+		}
+
 		if err := d.checkDbaasApiVersion(ctx); err != nil {
 			return nil, model.DbaaSCreateDbError{
-				HttpCode: resp.StatusCode,
+				HttpCode: httpCode,
 				Message:  "API v3 dbaas-aggregator is not available",
 				Errors:   err,
 			}
@@ -354,7 +359,7 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 		return nil, model.DbaaSCreateDbError{
 			HttpCode: 000,
 			Message:  "Failed to connect to dbaas.",
-			Errors:   fmt.Errorf("dbaas error: %w", err),
+			Errors:   fmt.Errorf("dbaas error: %w", lastErr),
 		}
 	}
 

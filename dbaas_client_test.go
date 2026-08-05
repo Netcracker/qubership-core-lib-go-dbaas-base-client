@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
@@ -440,6 +441,89 @@ func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_AlwaysNetworkProblems(
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "Failed to connect to dbaas")
 	}
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_DoesNotRetryOnContextCanceled() {
+	requestCount := 0
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		writer.WriteHeader(http.StatusInternalServerError)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
+	params := rest.BaseDbParams{}
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, params)
+
+	assert.Error(suite.T(), err)
+	assert.Equal(suite.T(), 0, requestCount, "should not make any requests when context is already canceled")
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_DoesNotRetryOnContextDeadlineExceeded() {
+	requestCount := 0
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		writer.WriteHeader(http.StatusInternalServerError)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+	time.Sleep(10 * time.Millisecond)
+
+	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
+	params := rest.BaseDbParams{}
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, params)
+
+	assert.Error(suite.T(), err)
+	assert.Equal(suite.T(), 0, requestCount, "should not make any requests when context deadline has already exceeded")
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_StopsRetryingWhenContextCanceled() {
+	requestCount := 0
+	ctx, cancel := context.WithCancel(context.Background())
+
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		if requestCount >= 2 {
+			cancel()
+		}
+		writer.WriteHeader(http.StatusInternalServerError)
+	})
+
+	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
+	params := rest.BaseDbParams{}
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, params)
+
+	assert.Error(suite.T(), err)
+	assert.LessOrEqual(suite.T(), requestCount, 3, "should stop retrying shortly after context is canceled")
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_StopsRetryingWhenContextDeadlineExceeded() {
+	requestCount := 0
+
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		if requestCount >= 2 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		writer.WriteHeader(http.StatusInternalServerError)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
+	params := rest.BaseDbParams{}
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, params)
+
+	assert.Error(suite.T(), err)
+	assert.LessOrEqual(suite.T(), requestCount, 3, "should stop retrying shortly after context deadline exceeded")
 }
 
 func (suite *DbaasClientTestSuite) TestGetOrCreateDatabaseDbaaSApiV3NotAvailable() {
