@@ -92,6 +92,7 @@ func (suite *DbaasClientTestSuite) TestGetConnection_ApiV3ExistsAndSetCorrectAns
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	actualMessage, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), message, actualMessage["response"])
@@ -108,6 +109,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), "1", actualLogicalDb.Id)
@@ -120,6 +122,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_UseLogicalDbProvider(
 	correctLogicalDbProvider := testCorrectLogicalDbProvider{testServerUrl: GetMockServerUrl()}
 	options := model.ClientOptions{LogicalDbProviders: []model.LogicalDbProvider{correctLogicalDbProvider}}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), "1", actualLogicalDb.Id)
@@ -140,6 +143,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_UseLogicalDbProviderF
 		LogicalDbProviders: []model.LogicalDbProvider{testNilLogicalDbProvider{}, correctLogicalDbProvider},
 	}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), "1", actualLogicalDb.Id)
@@ -159,6 +163,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_AllLogicalDbProviderR
 		LogicalDbProviders: []model.LogicalDbProvider{testNilLogicalDbProvider{}, testNilLogicalDbProvider{}},
 	}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), "1", actualLogicalDb.Id)
@@ -179,6 +184,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_LogicalDbProviderRetu
 		LogicalDbProviders: []model.LogicalDbProvider{testErrorLogicalDbProvider{}},
 	}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "error during providing")
 	}
@@ -195,6 +201,7 @@ func (suite *DbaasClientTestSuite) TestGetDatabase_GetConnectionFromProvider() {
 	correctLogicalDbProvider := testCorrectLogicalDbProvider{testServerUrl: GetMockServerUrl()}
 	options := model.ClientOptions{LogicalDbProviders: []model.LogicalDbProvider{correctLogicalDbProvider}}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	connection, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.False(suite.T(), isRequestSent)
@@ -215,6 +222,7 @@ func (suite *DbaasClientTestSuite) TestGetDatabase_UseLogicalDbProviderFromListV
 		LogicalDbProviders: []model.LogicalDbProvider{testNilLogicalDbProvider{}, correctLogicalDbProvider},
 	}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	connection, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.False(suite.T(), isRequestSent)
@@ -239,6 +247,7 @@ func (suite *DbaasClientTestSuite) TestGetConnection_AllLogicalDbProviderReturnN
 		LogicalDbProviders: []model.LogicalDbProvider{testNilLogicalDbProvider{}, testNilLogicalDbProvider{}},
 	}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	connection, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 	assert.True(suite.T(), isRequestSent)
@@ -264,6 +273,7 @@ func (suite *DbaasClientTestSuite) TestGetConnection_LogicalDbProviderReturnErro
 		LogicalDbProviders: []model.LogicalDbProvider{testErrorLogicalDbProvider{}},
 	}
 	dbClient := NewDbaasClient(options)
+	dbClient.useTestRetryConfiguration()
 	if _, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "error during providing")
 		assert.False(suite.T(), isRequestSent)
@@ -283,6 +293,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_DbaasNotReady() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), model.DbaaSCreateDbError{
 			HttpCode: 500,
@@ -294,6 +305,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_DbaasNotReady() {
 
 func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_ClassifierIsEmpty() {
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	params := rest.BaseDbParams{}
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, map[string]interface{}{}, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), "classifier is not valid. \"microserviceName\" field must be not empty", err.Error())
@@ -311,6 +323,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabase_4xxDbaasError() {
 
 	params := rest.BaseDbParams{}
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "Failed to get response from DbaaS")
 	}
@@ -327,6 +340,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabaseRetryPolicy() {
 
 	params := rest.BaseDbParams{}
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "Incorrect response from DbaaS. Stop retrying")
 	}
@@ -346,6 +360,7 @@ func (suite *DbaasClientTestSuite) TestSendRequestToDbaas() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
 }
@@ -365,6 +380,7 @@ func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_V3Return202() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	params := rest.BaseDbParams{}
 	_, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
@@ -382,6 +398,7 @@ func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_V3AlwaysReturn202() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	params := rest.BaseDbParams{}
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "Failed to get response from DbaaS")
@@ -405,6 +422,7 @@ func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_RetriesOnNetworkProble
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	params := rest.BaseDbParams{}
 	_, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.Nil(suite.T(), err)
@@ -417,6 +435,7 @@ func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_AlwaysNetworkProblems(
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	params := rest.BaseDbParams{}
 	if _, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params); assert.Error(suite.T(), err) {
 		assert.Contains(suite.T(), err.Error(), "Failed to connect to dbaas")
@@ -434,6 +453,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateDatabaseDbaaSApiV3NotAvailable
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetOrCreateDb(context.Background(), dbType, suite.classifier, params)
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), actualLogicalDb)
@@ -451,6 +471,7 @@ func (suite *DbaasClientTestSuite) TestGetConnectionDbaaSApiV3NotAvailable() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params)
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), actualLogicalDb)
@@ -465,6 +486,7 @@ func (suite *DbaasClientTestSuite) TestGetConnectionRetryPolicy() {
 	})
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetConnection(context.Background(), dbType, suite.classifier, params)
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), actualLogicalDb)
@@ -476,6 +498,7 @@ func (suite *DbaasClientTestSuite) TestGetOrCreateWithWrongClassifier() {
 	classifier := map[string]interface{}{"microserviceName": "test_service"}
 
 	dbClient := NewDbaasClient()
+	dbClient.useTestRetryConfiguration()
 	actualLogicalDb, err := dbClient.GetOrCreateDb(context.Background(), dbType, classifier, params)
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), actualLogicalDb)

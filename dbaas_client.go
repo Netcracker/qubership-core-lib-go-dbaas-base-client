@@ -45,7 +45,11 @@ type dbaasClientImpl struct {
 	dbaasAgentUrl string
 	namespace     string
 	client        *restclient.M2MRestClient
+	retryTimer    retry.Timer
 }
+
+type instantRetryTimer struct{}
+type retryTimer struct{}
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	dbaasUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
@@ -77,7 +81,23 @@ func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	} else {
 		dbsClntImpl.options = model.ClientOptions{}
 	}
+
+	dbsClntImpl.retryTimer = &retryTimer{}
+
 	return dbsClntImpl
+}
+
+func (t *instantRetryTimer) After(d time.Duration) <-chan time.Time {
+	return time.After(0)
+}
+func (t *retryTimer) After(d time.Duration) <-chan time.Time {
+	return time.After(d)
+}
+
+// useTestRetryConfiguration sets the client to use test retry configurations
+// which will make sure that the retry attemps happen instantly
+func (d *dbaasClientImpl) useTestRetryConfiguration() {
+	d.retryTimer = &instantRetryTimer{}
 }
 
 func (d *dbaasClientImpl) GetOrCreateDb(ctx context.Context, dbType string, classifier map[string]interface{}, params rest.BaseDbParams) (*model.LogicalDb, error) {
@@ -314,6 +334,7 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 
 			return true
 		}),
+		retry.WithTimer(d.retryTimer),
 	)
 	if err != nil {
 		lastErr := err
