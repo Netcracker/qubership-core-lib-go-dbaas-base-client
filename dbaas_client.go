@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	intermodel "github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/internal/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
@@ -44,7 +45,11 @@ type dbaasClientImpl struct {
 	dbaasAgentUrl string
 	namespace     string
 	client        *restclient.M2MRestClient
+	retryTimer    retry.Timer
 }
+
+type instantRetryTimer struct{}
+type retryTimer struct{}
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	dbaasUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
@@ -76,7 +81,23 @@ func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 	} else {
 		dbsClntImpl.options = model.ClientOptions{}
 	}
+
+	dbsClntImpl.retryTimer = &retryTimer{}
+
 	return dbsClntImpl
+}
+
+func (t *instantRetryTimer) After(d time.Duration) <-chan time.Time {
+	return time.After(0)
+}
+func (t *retryTimer) After(d time.Duration) <-chan time.Time {
+	return time.After(d)
+}
+
+// useTestRetryConfiguration sets the client to use test retry configurations
+// which will make sure that the retry attemps happen instantly
+func (d *dbaasClientImpl) useTestRetryConfiguration() {
+	d.retryTimer = &instantRetryTimer{}
 }
 
 func (d *dbaasClientImpl) GetOrCreateDb(ctx context.Context, dbType string, classifier map[string]interface{}, params rest.BaseDbParams) (*model.LogicalDb, error) {
@@ -211,69 +232,137 @@ func (d *dbaasClientImpl) sendRequestToDbaaSWithRetry(ctx context.Context, dbaas
 }
 
 func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl string, httpMethod string, requestPayload []byte, retryPolicy *intermodel.RetryPolicy) (*http.Response, error) {
-	hasBeenInterrupted := false
-	maxNumberOfAttempts := configloader.GetOrDefault("dbaas.baseclient.retry.max-attempts", 12).(int)
-	delay := configloader.GetOrDefault("dbaas.baseclient.retry.delay-ms", 5000).(int)
+	maxAttempts := configloader.GetOrDefault("dbaas.baseclient.retry.max-attempts", 12).(int)
+	delayMs := configloader.GetOrDefault("dbaas.baseclient.retry.delay-ms", 5000).(int)
+	delay := time.Duration(delayMs) * time.Millisecond
+
 	var resp *http.Response
-	for i := 0; i <= maxNumberOfAttempts; i++ {
-		var err error
-		resp, err = d.client.DoRequest(ctx, httpMethod, dbaasUrl, map[string][]string{
-			"Content-Type": {"application/json"},
-		}, bytes.NewReader(requestPayload))
-		if err != nil {
-			logger.WarnC(ctx, "Error during sending request to dbaas: %v", err.Error())
-			if i == maxNumberOfAttempts {
+	err := retry.Do(
+		func() error {
+			var err error
+
+			resp, err = d.client.DoRequest(ctx, httpMethod, dbaasUrl, map[string][]string{
+				"Content-Type": {"application/json"},
+			}, bytes.NewReader(requestPayload))
+			if err != nil {
 				errMsg := "Failed to connect to dbaas."
 				if resp != nil && resp.StatusCode == http.StatusAccepted {
-					errMsg = fmt.Sprintf("Database was not created during a timeout of %d seconds.", maxNumberOfAttempts*delay/1000)
+					errMsg = fmt.Sprintf("Database was not created during a timeout of %s.", delay*time.Duration(maxAttempts))
 				}
-				return nil, model.DbaaSCreateDbError{
-					HttpCode: 000,
+
+				return model.DbaaSCreateDbError{
+					HttpCode: 0,
 					Message:  errMsg,
-					Errors:   fmt.Errorf("dbaas error: %w", err),
-				}
-			} else {
-				time.Sleep(time.Duration(delay) * time.Millisecond)
-				continue
-			}
-		}
-
-		if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-			break
-		} else if retryPolicy.HasNotRetryableHttpCode(resp.StatusCode) {
-			logger.ErrorC(ctx, "Request to %s %s failed with status code %d", httpMethod, dbaasUrl, resp.StatusCode)
-			hasBeenInterrupted = true
-		} else if resp.StatusCode == http.StatusAccepted {
-			logger.InfoC(ctx, "Secure %s request to %s got status code %d, database is not created yet, retrying %d out of %d", httpMethod, dbaasUrl, resp.StatusCode, i, maxNumberOfAttempts)
-			time.Sleep(time.Duration(delay) * time.Millisecond)
-		} else if resp.StatusCode >= 300 {
-			logger.WarnC(ctx, "Request to %s %s failed with status code %d, retrying %d out of %d", httpMethod, dbaasUrl, resp.StatusCode, i, maxNumberOfAttempts)
-			time.Sleep(time.Duration(delay) * time.Millisecond)
-		}
-
-		if i == maxNumberOfAttempts || hasBeenInterrupted {
-			err = d.checkDbaasApiVersion(ctx)
-			if err != nil {
-				return nil, model.DbaaSCreateDbError{
-					HttpCode: resp.StatusCode,
-					Message:  "API v3 dbaas-aggregator is not available",
 					Errors:   err,
 				}
 			}
-			responseBody, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
 
-			errMsg := "Failed to get response from DbaaS."
-			if hasBeenInterrupted {
-				errMsg = "Incorrect response from DbaaS. Stop retrying"
+			if !(resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK) {
+				responseBody, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+
+				errMsg := "Failed to get response from DbaaS."
+				if retryPolicy.HasNotRetryableHttpCode(resp.StatusCode) {
+					errMsg = "Incorrect response from DbaaS. Stop retrying"
+				}
+
+				return model.DbaaSCreateDbError{
+					HttpCode: resp.StatusCode,
+					Message:  errMsg,
+					Errors:   fmt.Errorf("request to DbaaS failed with response body: %s", responseBody),
+				}
 			}
+
+			return nil
+		},
+		retry.Context(ctx),
+		retry.Attempts(uint(maxAttempts)),
+		retry.Delay(delay),
+		retry.OnRetry(func(attempt uint, err error) {
+			dbaasErr, ok := errors.AsType[model.DbaaSCreateDbError](err)
+			if !ok {
+				logger.WarnC(
+					ctx,
+					"Request to %s %s failed with unexpected error: %s, retrying %d out of %d",
+					httpMethod,
+					dbaasUrl,
+					err.Error(),
+					attempt+1,
+					maxAttempts,
+				)
+				return
+			}
+
+			if dbaasErr.HttpCode == http.StatusAccepted {
+				logger.InfoC(
+					ctx,
+					"Secure %s request to %s got status code %d, database is not created yet, retrying %d out of %d",
+					httpMethod,
+					dbaasUrl,
+					dbaasErr.HttpCode,
+					attempt+1,
+					maxAttempts,
+				)
+				return
+			}
+
+			if dbaasErr.HttpCode >= 300 {
+				logger.WarnC(
+					ctx,
+					"Request to %s %s failed with status code %d, retrying %d out of %d",
+					httpMethod,
+					dbaasUrl,
+					dbaasErr.HttpCode,
+					attempt+1,
+					maxAttempts,
+				)
+				return
+			}
+		}),
+		retry.RetryIf(func(err error) bool {
+			dbaasErr, ok := errors.AsType[model.DbaaSCreateDbError](err)
+			if !ok {
+				return false
+			}
+
+			if retryPolicy.HasNotRetryableHttpCode(dbaasErr.HttpCode) {
+				return false
+			}
+
+			return true
+		}),
+		retry.WithTimer(d.retryTimer),
+	)
+	if err != nil {
+		lastErr := err
+		if retryErr, ok := errors.AsType[retry.Error](err); ok {
+			lastErr = retryErr.Unwrap()
+		}
+
+		var httpCode int
+		if resp != nil {
+			httpCode = resp.StatusCode
+		}
+
+		if err := d.checkDbaasApiVersion(ctx); err != nil {
 			return nil, model.DbaaSCreateDbError{
-				HttpCode: resp.StatusCode,
-				Message:  errMsg,
-				Errors:   errors.New(fmt.Sprintf("request to DbaaS failed with response body: %s", responseBody)),
+				HttpCode: httpCode,
+				Message:  "API v3 dbaas-aggregator is not available",
+				Errors:   err,
 			}
 		}
+
+		if dbaasErr, ok := errors.AsType[model.DbaaSCreateDbError](lastErr); ok {
+			return nil, dbaasErr
+		}
+
+		return nil, model.DbaaSCreateDbError{
+			HttpCode: 000,
+			Message:  "Failed to connect to dbaas.",
+			Errors:   fmt.Errorf("dbaas error: %w", lastErr),
+		}
 	}
+
 	return resp, nil
 }
 
