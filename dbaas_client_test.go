@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model"
 	"github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/model/rest"
@@ -514,6 +515,62 @@ func (suite *DbaasClientTestSuite) TestIsValidClassifier_ErrorClassifierWithoutT
 	err := isValidClassifier(context.Background(), classifier)
 	assert.NotNil(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "classifier is not valid.")
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_ImmediateReturnOnCanceledContext() {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	requestCount := 0
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		writer.WriteHeader(http.StatusOK)
+	})
+
+	dbClient := NewDbaasClient()
+	start := time.Now()
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, rest.BaseDbParams{})
+	elapsed := time.Since(start)
+	assert.Error(suite.T(), err)
+	assert.Equal(suite.T(), 0, requestCount)
+	assert.Less(suite.T(), elapsed, 100*time.Millisecond)
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_StopsRetryingOnContextCancel() {
+	configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
+	ctx, cancel := context.WithCancel(context.Background())
+	requestCount := 0
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		cancel()
+		writer.WriteHeader(http.StatusInternalServerError)
+	})
+
+	dbClient := NewDbaasClient()
+	start := time.Now()
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, rest.BaseDbParams{})
+	elapsed := time.Since(start)
+	assert.Error(suite.T(), err)
+	assert.Equal(suite.T(), 1, requestCount)
+	assert.Less(suite.T(), elapsed, 100*time.Millisecond)
+}
+
+func (suite *DbaasClientTestSuite) TestSendRequestToDbaas_StopsRetryingOnContextDeadline() {
+	configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	requestCount := 0
+	AddHandler(Contains(dbaasGetOrCreateEndpointV3), func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		writer.WriteHeader(http.StatusInternalServerError)
+	})
+
+	dbClient := NewDbaasClient()
+	start := time.Now()
+	_, err := dbClient.GetOrCreateDb(ctx, dbType, suite.classifier, rest.BaseDbParams{})
+	elapsed := time.Since(start)
+	assert.Error(suite.T(), err)
+	assert.LessOrEqual(suite.T(), requestCount, 2)
+	assert.Less(suite.T(), elapsed, 500*time.Millisecond)
 }
 
 func TestSuite(t *testing.T) {
