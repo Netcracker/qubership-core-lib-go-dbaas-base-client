@@ -254,24 +254,35 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 		}
 
 		if i == maxNumberOfAttempts || hasBeenInterrupted {
-			responseBody, _ := io.ReadAll(resp.Body)
+			responseBody, readErr := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			apiErr := d.checkDbaasApiVersion(ctx)
-			if apiErr != nil {
+			var bodyErr error
+			if readErr != nil {
+				bodyErr = fmt.Errorf("request to DbaaS failed, error reading response body: %w", readErr)
+			} else {
+				bodyErr = fmt.Errorf("request to DbaaS failed with response body: %s", responseBody)
+			}
+
+			if apiErr := d.checkDbaasApiVersion(ctx); apiErr != nil {
 				return nil, model.DbaaSCreateDbError{
 					HttpCode: resp.StatusCode,
 					Message:  "API v3 dbaas-aggregator is not available",
 					Errors:   apiErr,
 				}
 			}
-			errMsg := "Failed to get response from DbaaS."
+
 			if hasBeenInterrupted {
-				errMsg = "Incorrect response from DbaaS. Stop retrying"
+				return nil, model.DbaaSCreateDbError{
+					HttpCode: resp.StatusCode,
+					Message:  "Incorrect response from DbaaS. Stop retrying",
+					Errors:   bodyErr,
+				}
 			}
+
 			return nil, model.DbaaSCreateDbError{
 				HttpCode: resp.StatusCode,
-				Message:  errMsg,
-				Errors:   errors.New(fmt.Sprintf("request to DbaaS failed with response body: %s", responseBody)),
+				Message:  "Failed to get response from DbaaS.",
+				Errors:   bodyErr,
 			}
 		}
 
