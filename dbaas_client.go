@@ -235,12 +235,11 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 					Message:  errMsg,
 					Errors:   fmt.Errorf("dbaas error: %w", err),
 				}
-			} else {
-				if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
-					return nil, err
-				}
-				continue
 			}
+			if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
+				return nil, err
+			}
+			continue
 		}
 
 		if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
@@ -250,28 +249,21 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 			hasBeenInterrupted = true
 		} else if resp.StatusCode == http.StatusAccepted {
 			logger.InfoC(ctx, "Secure %s request to %s got status code %d, database is not created yet, retrying %d out of %d", httpMethod, dbaasUrl, resp.StatusCode, i, maxNumberOfAttempts)
-			if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
-				return nil, err
-			}
 		} else if resp.StatusCode >= 300 {
 			logger.WarnC(ctx, "Request to %s %s failed with status code %d, retrying %d out of %d", httpMethod, dbaasUrl, resp.StatusCode, i, maxNumberOfAttempts)
-			if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
-				return nil, err
-			}
 		}
 
 		if i == maxNumberOfAttempts || hasBeenInterrupted {
-			err = d.checkDbaasApiVersion(ctx)
-			if err != nil {
+			responseBody, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			apiErr := d.checkDbaasApiVersion(ctx)
+			if apiErr != nil {
 				return nil, model.DbaaSCreateDbError{
 					HttpCode: resp.StatusCode,
 					Message:  "API v3 dbaas-aggregator is not available",
-					Errors:   err,
+					Errors:   apiErr,
 				}
 			}
-			responseBody, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-
 			errMsg := "Failed to get response from DbaaS."
 			if hasBeenInterrupted {
 				errMsg = "Incorrect response from DbaaS. Stop retrying"
@@ -281,6 +273,11 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 				Message:  errMsg,
 				Errors:   errors.New(fmt.Sprintf("request to DbaaS failed with response body: %s", responseBody)),
 			}
+		}
+
+		_ = resp.Body.Close()
+		if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
+			return nil, err
 		}
 	}
 	return resp, nil
