@@ -216,6 +216,9 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 	delay := configloader.GetOrDefault("dbaas.baseclient.retry.delay-ms", 5000).(int)
 	var resp *http.Response
 	for i := 0; i <= maxNumberOfAttempts; i++ {
+		if ctx.Err() != nil {
+			return nil, model.DbaaSCreateDbError{HttpCode: 0, Message: "Request canceled.", Errors: ctx.Err()}
+		}
 		var err error
 		resp, err = d.client.DoRequest(ctx, httpMethod, dbaasUrl, map[string][]string{
 			"Content-Type": {"application/json"},
@@ -232,10 +235,11 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 					Message:  errMsg,
 					Errors:   fmt.Errorf("dbaas error: %w", err),
 				}
-			} else {
-				time.Sleep(time.Duration(delay) * time.Millisecond)
-				continue
 			}
+			if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
+				return nil, err
+			}
+			continue
 		}
 
 		if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
@@ -245,33 +249,46 @@ func (d *dbaasClientImpl) retryRequestToDbaaS(ctx context.Context, dbaasUrl stri
 			hasBeenInterrupted = true
 		} else if resp.StatusCode == http.StatusAccepted {
 			logger.InfoC(ctx, "Secure %s request to %s got status code %d, database is not created yet, retrying %d out of %d", httpMethod, dbaasUrl, resp.StatusCode, i, maxNumberOfAttempts)
-			time.Sleep(time.Duration(delay) * time.Millisecond)
 		} else if resp.StatusCode >= 300 {
 			logger.WarnC(ctx, "Request to %s %s failed with status code %d, retrying %d out of %d", httpMethod, dbaasUrl, resp.StatusCode, i, maxNumberOfAttempts)
-			time.Sleep(time.Duration(delay) * time.Millisecond)
 		}
 
 		if i == maxNumberOfAttempts || hasBeenInterrupted {
-			err = d.checkDbaasApiVersion(ctx)
-			if err != nil {
+			responseBody, readErr := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			var bodyErr error
+			if readErr != nil {
+				bodyErr = fmt.Errorf("request to DbaaS failed, error reading response body: %w", readErr)
+			} else {
+				bodyErr = fmt.Errorf("request to DbaaS failed with response body: %s", responseBody)
+			}
+
+			if apiErr := d.checkDbaasApiVersion(ctx); apiErr != nil {
 				return nil, model.DbaaSCreateDbError{
 					HttpCode: resp.StatusCode,
 					Message:  "API v3 dbaas-aggregator is not available",
-					Errors:   err,
+					Errors:   apiErr,
 				}
 			}
-			responseBody, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
 
-			errMsg := "Failed to get response from DbaaS."
 			if hasBeenInterrupted {
-				errMsg = "Incorrect response from DbaaS. Stop retrying"
+				return nil, model.DbaaSCreateDbError{
+					HttpCode: resp.StatusCode,
+					Message:  "Incorrect response from DbaaS. Stop retrying",
+					Errors:   bodyErr,
+				}
 			}
+
 			return nil, model.DbaaSCreateDbError{
 				HttpCode: resp.StatusCode,
-				Message:  errMsg,
-				Errors:   errors.New(fmt.Sprintf("request to DbaaS failed with response body: %s", responseBody)),
+				Message:  "Failed to get response from DbaaS.",
+				Errors:   bodyErr,
 			}
+		}
+
+		_ = resp.Body.Close()
+		if err := sleepOrCancel(ctx, time.Duration(delay)*time.Millisecond); err != nil {
+			return nil, err
 		}
 	}
 	return resp, nil
@@ -309,6 +326,15 @@ func isValidClassifier(ctx context.Context, classifier map[string]interface{}) e
 		return err
 	}
 	return nil
+}
+
+func sleepOrCancel(ctx context.Context, d time.Duration) error {
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return model.DbaaSCreateDbError{HttpCode: 0, Message: "Request canceled.", Errors: ctx.Err()}
+	}
 }
 
 func (d *dbaasClientImpl) checkDbaasApiVersion(ctx context.Context) error {
