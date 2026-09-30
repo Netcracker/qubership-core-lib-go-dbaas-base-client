@@ -81,6 +81,37 @@ func (suite *DbaasClientTestSuite) TestNewDbaasClient_WithOptions() {
 	assert.NotNil(suite.T(), dbaasClient.options.LogicalDbProviders)
 }
 
+func (suite *DbaasClientTestSuite) TestNewDbaasClient_SelectsDbaasAddress() {
+	const directAddress = "http://dbaas.test:8080"
+	tests := []struct {
+		name            string
+		k8sM2MEnabled   string
+		apiDbaasAddress string
+		want            string
+	}{
+		{name: "unset flag uses the agent", apiDbaasAddress: directAddress, want: GetMockServerUrl()},
+		{name: "false uses the agent", k8sM2MEnabled: "false", apiDbaasAddress: directAddress, want: GetMockServerUrl()},
+		{name: "true uses the direct address", k8sM2MEnabled: "true", apiDbaasAddress: directAddress, want: directAddress},
+		{name: "true without the direct address uses the agent", k8sM2MEnabled: "true", want: GetMockServerUrl()},
+	}
+	for _, tt := range tests {
+		suite.Run(tt.name, func() {
+			suite.T().Cleanup(func() {
+				configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
+			})
+			if tt.k8sM2MEnabled != "" {
+				suite.T().Setenv("KUBERNETES_M2M_ENABLED", tt.k8sM2MEnabled)
+			}
+			if tt.apiDbaasAddress != "" {
+				suite.T().Setenv("API_DBAAS_ADDRESS", tt.apiDbaasAddress)
+			}
+			configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
+
+			assert.Equal(suite.T(), tt.want, NewDbaasClient().dbaasAgentUrl)
+		})
+	}
+}
+
 func (suite *DbaasClientTestSuite) TestGetConnection_ApiV3ExistsAndSetCorrectAnswer() {
 	message := "connection_string"
 	password := "qwerty"
