@@ -27,6 +27,7 @@ const (
 	getDatabaseByClassifierV3 = "%s/api/v3/dbaas/%s/databases/get-by-classifier/%s"
 	apiVersion                = "%s/api-version"
 	MsgClassifierIsNotValid   = "Can't create database with wrong classifier: %+v"
+	dbaasAddressProperty      = "api.dbaas.address"
 )
 
 func init() {
@@ -65,18 +66,18 @@ func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 
 func selectDbaasUrl(mode security.M2MAuthMode) string {
 	agentUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
-	directAddressExists := configloader.GetKoanf().Exists("api.dbaas.address")
+	directAddressExists := configloader.GetKoanf().Exists(dbaasAddressProperty)
 	switch mode {
 	case security.M2MAuthModeK8s:
 		if !directAddressExists {
-			logger.Panic("api.dbaas.address is not set: with M2M_AUTH_MODE=k8s the client sends requests directly to DBaaS, set api.dbaas.address to the DBaaS URL")
+			logger.Panic("%[1]s is not set: with M2M_AUTH_MODE=k8s the client sends requests directly to DBaaS, set %[1]s to the DBaaS URL", dbaasAddressProperty)
 		}
-		return configloader.GetKoanf().String("api.dbaas.address")
+		return configloader.GetKoanf().String(dbaasAddressProperty)
 	case security.M2MAuthModeHybrid:
 		if directAddressExists {
-			return configloader.GetKoanf().String("api.dbaas.address")
+			return configloader.GetKoanf().String(dbaasAddressProperty)
 		}
-		logger.Warn("DBaaS address is not available, falling back to dbaas-agent. Specify 'api.dbaas.address' property to DBaaS url")
+		logger.Warn("DBaaS address is not available, falling back to dbaas-agent. Specify '%s' property to DBaaS url", dbaasAddressProperty)
 		return agentUrl
 	default:
 		return agentUrl
