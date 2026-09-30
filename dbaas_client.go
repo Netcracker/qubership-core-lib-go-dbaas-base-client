@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"strconv"
 	"time"
 
 	intermodel "github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3/internal/model"
@@ -18,6 +16,7 @@ import (
 	"github.com/netcracker/qubership-core-lib-go/v3/configloader"
 	constants "github.com/netcracker/qubership-core-lib-go/v3/const"
 	"github.com/netcracker/qubership-core-lib-go/v3/logging"
+	"github.com/netcracker/qubership-core-lib-go/v3/security"
 	restclient "github.com/netcracker/qubership-core-lib-go/v3/security/rest"
 )
 
@@ -47,22 +46,7 @@ type dbaasClientImpl struct {
 }
 
 func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
-	dbaasUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
-	k8sM2mEnabled := false
-	if rawM2mEnabled, ok := os.LookupEnv("KUBERNETES_M2M_ENABLED"); ok {
-		var err error
-		k8sM2mEnabled, err = strconv.ParseBool(rawM2mEnabled)
-		if err != nil {
-			logger.Error("Failed to parse env var KUBERNETES_M2M_ENABLED: %v", err)
-		}
-	}
-	if k8sM2mEnabled {
-		if configloader.GetKoanf().Exists("api.dbaas.address") {
-			dbaasUrl = configloader.GetOrDefaultString("api.dbaas.address", dbaasUrl)
-		} else {
-			logger.Warn("DBaaS address is not available, falling back to dbaas-agent. Specify 'api.dbaas.address' property to DBaaS url")
-		}
-	}
+	dbaasUrl := selectDbaasUrl(security.MustReadM2MAuthMode())
 
 	namespace := configloader.GetKoanf().MustString("microservice.namespace")
 	dbsClntImpl := &dbaasClientImpl{
@@ -77,6 +61,26 @@ func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 		dbsClntImpl.options = model.ClientOptions{}
 	}
 	return dbsClntImpl
+}
+
+func selectDbaasUrl(mode security.M2MAuthMode) string {
+	agentUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
+	directAddressExists := configloader.GetKoanf().Exists("api.dbaas.address")
+	switch mode {
+	case security.M2MAuthModeK8s:
+		if !directAddressExists {
+			logger.Panic("api.dbaas.address is not set: with M2M_AUTH_MODE=k8s the client sends requests directly to DBaaS, set api.dbaas.address to the DBaaS URL")
+		}
+		return configloader.GetKoanf().String("api.dbaas.address")
+	case security.M2MAuthModeHybrid:
+		if directAddressExists {
+			return configloader.GetKoanf().String("api.dbaas.address")
+		}
+		logger.Warn("DBaaS address is not available, falling back to dbaas-agent. Specify 'api.dbaas.address' property to DBaaS url")
+		return agentUrl
+	default:
+		return agentUrl
+	}
 }
 
 func (d *dbaasClientImpl) GetOrCreateDb(ctx context.Context, dbType string, classifier map[string]interface{}, params rest.BaseDbParams) (*model.LogicalDb, error) {

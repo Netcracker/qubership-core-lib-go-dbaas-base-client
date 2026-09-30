@@ -94,6 +94,7 @@ DbaasPool has next API:
 |microservice.namespace               | Name of current namespace                                                                                                            | false  | -  | 0.1.0 |
 |dbaas.baseclient.retry.max-attempts  | Number of retry attempts                                                                                                             | true   | 12 | 0.1.0 |
 |dbaas.baseclient.retry.delay-ms      | Delay per attempt (ms)                                                                                                               | true   | 5000 | 0.1.0 |
+|api.dbaas.address                    | DBaaS URL for direct requests, read when `M2M_AUTH_MODE` is `hybrid` or `k8s`. In `hybrid` the client uses dbaas-agent when it is not set. In `k8s` it is required, and creating the client panics with `api.dbaas.address is not set: ...` without it | true   | -  | -     |
 
 
 ### LogicalDbProviders
