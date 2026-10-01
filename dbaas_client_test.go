@@ -92,6 +92,7 @@ func (suite *DbaasClientTestSuite) TestNewDbaasClient_SelectsDbaasAddress() {
 		{name: "legacy uses the agent", env: map[string]string{"M2M_AUTH_MODE": "legacy", "API_DBAAS_ADDRESS": directAddress}, want: GetMockServerUrl()},
 		{name: "hybrid uses the direct address", env: map[string]string{"M2M_AUTH_MODE": "hybrid", "API_DBAAS_ADDRESS": directAddress}, want: directAddress},
 		{name: "hybrid without the direct address uses the agent", env: map[string]string{"M2M_AUTH_MODE": "hybrid"}, want: GetMockServerUrl()},
+		{name: "hybrid with an empty direct address uses the agent", env: map[string]string{"M2M_AUTH_MODE": "hybrid", "API_DBAAS_ADDRESS": ""}, want: GetMockServerUrl()},
 		{name: "k8s uses the direct address", env: map[string]string{"M2M_AUTH_MODE": "k8s", "API_DBAAS_ADDRESS": directAddress}, want: directAddress},
 		{name: "KUBERNETES_M2M_ENABLED is not read", env: map[string]string{"KUBERNETES_M2M_ENABLED": "true", "API_DBAAS_ADDRESS": directAddress}, want: GetMockServerUrl()},
 	}
@@ -105,14 +106,25 @@ func (suite *DbaasClientTestSuite) TestNewDbaasClient_SelectsDbaasAddress() {
 }
 
 func (suite *DbaasClientTestSuite) TestNewDbaasClient_K8sModeWithoutDirectAddressPanics() {
-	suite.initConfigWithEnv(map[string]string{"M2M_AUTH_MODE": "k8s"})
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{name: "unset", env: map[string]string{"M2M_AUTH_MODE": "k8s"}},
+		{name: "empty", env: map[string]string{"M2M_AUTH_MODE": "k8s", "API_DBAAS_ADDRESS": ""}},
+	}
+	for _, tt := range tests {
+		suite.Run(tt.name, func() {
+			suite.initConfigWithEnv(tt.env)
 
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		NewDbaasClient()
-	}()
-	assert.Contains(suite.T(), recovered, "api.dbaas.address is not set")
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				NewDbaasClient()
+			}()
+			assert.Contains(suite.T(), recovered, "api.dbaas.address is not set")
+		})
+	}
 }
 
 func (suite *DbaasClientTestSuite) initConfigWithEnv(env map[string]string) {

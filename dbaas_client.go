@@ -66,16 +66,16 @@ func NewDbaasClient(options ...model.ClientOptions) *dbaasClientImpl {
 
 func selectDbaasUrl(mode security.M2MAuthMode) string {
 	agentUrl := configloader.GetOrDefaultString("dbaas.agent", constants.SelectUrl("http://dbaas-agent:8080", "https://dbaas-agent:8443"))
-	directAddressExists := configloader.GetKoanf().Exists(dbaasAddressProperty)
+	directAddress := configloader.GetOrDefaultString(dbaasAddressProperty, "")
 	switch mode {
 	case security.M2MAuthModeK8s:
-		if !directAddressExists {
+		if directAddress == "" {
 			logger.Panic("%[1]s is not set: with M2M_AUTH_MODE=k8s the client sends requests directly to DBaaS, set %[1]s to the DBaaS URL", dbaasAddressProperty)
 		}
-		return configloader.GetKoanf().String(dbaasAddressProperty)
+		return directAddress
 	case security.M2MAuthModeHybrid:
-		if directAddressExists {
-			return configloader.GetKoanf().String(dbaasAddressProperty)
+		if directAddress != "" {
+			return directAddress
 		}
 		logger.Warn("DBaaS address is not available, falling back to dbaas-agent. Specify '%s' property to DBaaS url", dbaasAddressProperty)
 		return agentUrl
