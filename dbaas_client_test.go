@@ -127,6 +127,12 @@ func (suite *DbaasClientTestSuite) TestNewDbaasClient_K8sModeWithoutDirectAddres
 	}
 }
 
+func (suite *DbaasClientTestSuite) TestNewDbaasClient_UnsupportedModePanics() {
+	suite.initConfigWithEnv(map[string]string{"M2M_AUTH_MODE": "true", "API_DBAAS_ADDRESS": "http://dbaas.test:8080"})
+
+	assert.Panics(suite.T(), func() { NewDbaasClient() })
+}
+
 func (suite *DbaasClientTestSuite) initConfigWithEnv(env map[string]string) {
 	t := suite.T()
 	t.Cleanup(func() {
