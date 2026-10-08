@@ -81,6 +81,69 @@ func (suite *DbaasClientTestSuite) TestNewDbaasClient_WithOptions() {
 	assert.NotNil(suite.T(), dbaasClient.options.LogicalDbProviders)
 }
 
+func (suite *DbaasClientTestSuite) TestNewDbaasClient_SelectsDbaasAddress() {
+	const directAddress = "http://dbaas.test:8080"
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{name: "unset mode uses the agent", env: map[string]string{"API_DBAAS_ADDRESS": directAddress}, want: GetMockServerUrl()},
+		{name: "legacy uses the agent", env: map[string]string{"M2M_AUTH_MODE": "legacy", "API_DBAAS_ADDRESS": directAddress}, want: GetMockServerUrl()},
+		{name: "hybrid uses the direct address", env: map[string]string{"M2M_AUTH_MODE": "hybrid", "API_DBAAS_ADDRESS": directAddress}, want: directAddress},
+		{name: "hybrid without the direct address uses the agent", env: map[string]string{"M2M_AUTH_MODE": "hybrid"}, want: GetMockServerUrl()},
+		{name: "hybrid with an empty direct address uses the agent", env: map[string]string{"M2M_AUTH_MODE": "hybrid", "API_DBAAS_ADDRESS": ""}, want: GetMockServerUrl()},
+		{name: "k8s uses the direct address", env: map[string]string{"M2M_AUTH_MODE": "k8s", "API_DBAAS_ADDRESS": directAddress}, want: directAddress},
+		{name: "KUBERNETES_M2M_ENABLED is not read", env: map[string]string{"KUBERNETES_M2M_ENABLED": "true", "API_DBAAS_ADDRESS": directAddress}, want: GetMockServerUrl()},
+	}
+	for _, tt := range tests {
+		suite.Run(tt.name, func() {
+			suite.initConfigWithEnv(tt.env)
+
+			assert.Equal(suite.T(), tt.want, NewDbaasClient().dbaasAgentUrl)
+		})
+	}
+}
+
+func (suite *DbaasClientTestSuite) TestNewDbaasClient_K8sModeWithoutDirectAddressPanics() {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{name: "unset", env: map[string]string{"M2M_AUTH_MODE": "k8s"}},
+		{name: "empty", env: map[string]string{"M2M_AUTH_MODE": "k8s", "API_DBAAS_ADDRESS": ""}},
+	}
+	for _, tt := range tests {
+		suite.Run(tt.name, func() {
+			suite.initConfigWithEnv(tt.env)
+
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				NewDbaasClient()
+			}()
+			assert.Contains(suite.T(), recovered, "api.dbaas.address is not set")
+		})
+	}
+}
+
+func (suite *DbaasClientTestSuite) TestNewDbaasClient_UnsupportedModePanics() {
+	suite.initConfigWithEnv(map[string]string{"M2M_AUTH_MODE": "true", "API_DBAAS_ADDRESS": "http://dbaas.test:8080"})
+
+	assert.Panics(suite.T(), func() { NewDbaasClient() })
+}
+
+func (suite *DbaasClientTestSuite) initConfigWithEnv(env map[string]string) {
+	t := suite.T()
+	t.Cleanup(func() {
+		configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
+	})
+	for name, value := range env {
+		t.Setenv(name, value)
+	}
+	configloader.InitWithSourcesArray(configloader.BasePropertySources(suite.params))
+}
+
 func (suite *DbaasClientTestSuite) TestGetConnection_ApiV3ExistsAndSetCorrectAnswer() {
 	message := "connection_string"
 	password := "qwerty"
