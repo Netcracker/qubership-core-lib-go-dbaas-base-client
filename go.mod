@@ -3,7 +3,7 @@ module github.com/netcracker/qubership-core-lib-go-dbaas-base-client/v3
 go 1.26.5
 
 require (
-	github.com/netcracker/qubership-core-lib-go/v3 v3.14.2-0.20260930115738-1de4576730ab
+	github.com/netcracker/qubership-core-lib-go/v3 v3.14.2-0.20261008091147-ba89f20f68cb
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.23.0
 )
@@ -17,7 +17,7 @@ require (
 	github.com/knadh/koanf/parsers/yaml v1.1.1 // indirect
 	github.com/knadh/koanf/providers/env/v2 v2.0.1 // indirect
 	github.com/knadh/koanf/providers/file v1.2.1 // indirect
-	github.com/knadh/koanf/v2 v2.3.6 // indirect
+	github.com/knadh/koanf/v2 v2.3.7 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
