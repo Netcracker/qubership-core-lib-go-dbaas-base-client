@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/netcracker/qubership-core-lib-go/v3 v3.14.2-0.20261009135009-9700d4cde1b7
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/sync v0.23.0
+	golang.org/x/sync v0.24.0
 )
 
 require (
